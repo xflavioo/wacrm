@@ -2308,7 +2308,13 @@ Import a acrescentar em cada um:
 import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
 ```
 
-O import de `decrypt` sai de todos, **exceto** `config/route.ts` (que também grava e precisa de `encrypt`).
+O import de `decrypt` sai de todos, **exceto** dois: `config/route.ts` (que também grava e precisa de `encrypt`) e `webhook/route.ts` (que usa `decrypt` para `verify_token` no handler GET — coluna diferente, não é `access_token`).
+
+**Três armadilhas que a implementação encontrou — verifique antes de tocar em cada arquivo:**
+
+1. **`config/route.ts` GET fazia `select('phone_number_id, access_token, status')`** — sem `provider` na lista, `assertMetaConfig` leria `undefined`, cairia no default `'meta'` e a guarda seria um **no-op silencioso** exatamente no health check das Configurações. Amplie para `select('*')`: é o que os outros seis sites já fazem, e num banco pré-040 a coluna ausente é simplesmente omitida (default correto), enquanto listá-la explicitamente quebraria a rota com erro de coluna desconhecida. Confirme que o handler não espalha `config` na resposta — ele monta o JSON à mão.
+2. **A fixture de `webhook/route.test.ts` não tinha `phone_number_id`** — a rota resolve a config *por* `phone_number_id`, então uma linha real sempre o tem; a fixture era infiel e todos os 15 testes do webhook falhariam na guarda `!config.phone_number_id`. Adicione `phone_number_id: 'pn-1'` (o mesmo valor do `metadata.phone_number_id` do payload de teste). Nenhuma asserção muda.
+3. **Só uma coluna é `access_token`.** O grep do Step 6 filtra por `access_token`; `decrypt(config.verify_token)` no webhook GET é outra coisa e fica.
 
 **A) Sites simples — `decrypt` sem try/catch próprio.** Troque `const accessToken = decrypt(config.access_token)` por `const { accessToken } = assertMetaConfig(config)`. Se o handler usa `config.phone_number_id` depois, desestruture também `phoneNumberId` e troque os usos; se usa `config.waba_id` (os três de templates), **deixe `config.waba_id` como está** — `assertMetaConfig` já garantiu que a linha é Meta, e `waba_id` continua sendo lido da linha:
 - `media/[mediaId]/route.ts:65`
