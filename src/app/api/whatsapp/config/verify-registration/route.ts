@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import {
+  ProviderResolutionError,
+  assertMetaConfig,
+} from '@/lib/whatsapp/provider/resolve'
 import {
   getSubscribedApps,
   verifyPhoneNumber,
@@ -69,10 +72,27 @@ export async function GET() {
     })
   }
 
-  let accessToken: string
+  // Guarda de provedor ANTES do decrypt: as três checagens abaixo
+  // falam com graph.facebook.com, então uma linha não-Meta não tem o
+  // que diagnosticar aqui. Se o portão morasse dentro do catch de
+  // token corrompido, uma conta Evolution sairia como "token
+  // indecifrável" e o usuário reinseriria um token que está íntegro.
+  let metaCreds: { phoneNumberId: string; accessToken: string }
   try {
-    accessToken = decrypt(config.access_token)
-  } catch {
+    metaCreds = assertMetaConfig(config)
+  } catch (err) {
+    if (err instanceof ProviderResolutionError) {
+      return NextResponse.json({
+        live: false,
+        checks: {
+          config_exists: true,
+          provider_is_meta: false,
+        },
+        message: err.message,
+      })
+    }
+    // Qualquer outro erro aqui é o decrypt falhando — mesmo
+    // diagnóstico de antes, palavra por palavra.
     return NextResponse.json({
       live: false,
       checks: {
@@ -83,6 +103,7 @@ export async function GET() {
         'Stored access token can\'t be decrypted — likely ENCRYPTION_KEY changed. Re-enter the token to repair.',
     })
   }
+  const accessToken = metaCreds.accessToken
 
   const checks: {
     config_exists: boolean

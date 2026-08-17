@@ -119,3 +119,42 @@ export async function resolveProvider(
     decryptedToken,
   };
 }
+
+/**
+ * Portão para as rotas que são Meta-only por natureza (templates,
+ * proxy de mídia por media id, registro do número, webhook da Meta).
+ *
+ * Elas não têm equivalente na Evolution e não vão para trás da
+ * interface de provedor — mas TODAS descriptografam `access_token`,
+ * que desde a migração 040 pode conter a chave da Evolution. Sem este
+ * portão, uma conta em modo Evolution manda a própria chave para
+ * graph.facebook.com no primeiro clique em "Sync from Meta".
+ *
+ * Falha alto de propósito: uma rota Meta chamada numa conta Evolution
+ * é um bug de UI (o botão não devia estar visível), e um erro claro é
+ * melhor do que uma requisição autenticada com o segredo errado.
+ */
+export function assertMetaConfig(config: RawConfigRow): {
+  phoneNumberId: string;
+  accessToken: string;
+} {
+  const kind = config.provider ?? 'meta';
+  if (kind !== 'meta') {
+    throw new ProviderResolutionError(
+      'provider_mismatch',
+      `This operation requires the Meta provider; this account is on "${kind}".`,
+      400
+    );
+  }
+  if (!config.phone_number_id) {
+    throw new ProviderResolutionError(
+      'whatsapp_not_configured',
+      'WhatsApp config is missing phone_number_id.',
+      400
+    );
+  }
+  return {
+    phoneNumberId: config.phone_number_id,
+    accessToken: decrypt(config.access_token),
+  };
+}

@@ -5,7 +5,7 @@ import {
   requireRole,
   toErrorResponse,
 } from '@/lib/auth/account'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
 
@@ -161,7 +161,10 @@ export async function POST() {
       )
     }
 
-    const accessToken = decrypt(config.access_token)
+    // O catálogo de templates é Meta-only. O portão recusa uma linha
+    // de outro provedor ANTES do decrypt — "Sync from Meta" numa conta
+    // Evolution não pode mandar a chave da Evolution para a Meta.
+    const { accessToken } = assertMetaConfig(config)
 
     const metaTemplates: MetaTemplate[] = []
     let nextUrl:

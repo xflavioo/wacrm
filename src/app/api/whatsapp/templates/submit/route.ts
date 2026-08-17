@@ -6,7 +6,7 @@ import {
   requireRole,
   toErrorResponse,
 } from '@/lib/auth/account'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
 import { submitMessageTemplate } from '@/lib/whatsapp/meta-api'
 import {
   validateTemplatePayload,
@@ -162,7 +162,10 @@ export async function POST(request: Request) {
         )
       }
 
-      const accessToken = decrypt(config.access_token)
+      // Submeter template para aprovação é Meta-only. O portão recusa
+      // uma linha de outro provedor ANTES do decrypt, para a credencial
+      // errada nunca chegar ao graph.facebook.com.
+      const { accessToken } = assertMetaConfig(config)
 
       // Image headers need a Resumable-Upload handle (Meta rejects a
       // plain URL at creation). Derive it from header_media_url before

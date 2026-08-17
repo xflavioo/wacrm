@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
 import {
   deleteMessageTemplate,
   editMessageTemplate,
@@ -149,7 +149,9 @@ export async function PATCH(
           { status: 400 },
         )
       }
-      const accessToken = decrypt(config.access_token)
+      // Editar template na Meta é Meta-only. O portão recusa uma linha
+      // de outro provedor ANTES do decrypt.
+      const { accessToken } = assertMetaConfig(config)
 
       // Image headers need a fresh Resumable-Upload handle on every edit
       // (Meta replaces components wholesale). Derive from header_media_url.
@@ -289,7 +291,9 @@ export async function DELETE(
           { status: 400 },
         )
       }
-      const accessToken = decrypt(config.access_token)
+      // Apagar template na Meta é Meta-only — mesmo portão do PATCH,
+      // antes do decrypt.
+      const { accessToken } = assertMetaConfig(config)
       try {
         await deleteMessageTemplate({
           wabaId: config.waba_id,

@@ -8,7 +8,11 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 }));
 
 import { decrypt } from '@/lib/whatsapp/encryption';
-import { resolveProvider, ProviderResolutionError } from './resolve';
+import {
+  assertMetaConfig,
+  resolveProvider,
+  ProviderResolutionError,
+} from './resolve';
 
 /**
  * Supabase de mentira que devolve uma linha de whatsapp_config — e
@@ -124,6 +128,24 @@ describe('resolveProvider', () => {
     await expect(
       resolveProvider(dbReturning(weird).db, 'acct-1')
     ).rejects.toThrow(/not implemented/i);
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+});
+
+describe('assertMetaConfig', () => {
+  it('returns the meta credentials for a meta row', () => {
+    expect(assertMetaConfig(META_ROW)).toEqual({
+      phoneNumberId: 'pn-1',
+      accessToken: 'decrypted:cipher',
+    });
+  });
+
+  // O ponto inteiro da task: nunca descriptografar a credencial de um
+  // provedor e mandá-la para o outro. A recusa acontece ANTES do
+  // decrypt — o segredo não sai da coluna.
+  it('refuses an evolution row instead of handing back its key', () => {
+    const evo = { ...META_ROW, provider: 'evolution', phone_number_id: null };
+    expect(() => assertMetaConfig(evo)).toThrow(/meta/i);
     expect(decrypt).not.toHaveBeenCalled();
   });
 });
