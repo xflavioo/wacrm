@@ -1492,16 +1492,21 @@ Substitua o bloco das linhas 254-285 (do comentário `// WhatsApp config, accoun
 
 ```ts
   // WhatsApp config + provedor, account-scoped.
-  let resolved;
+  // Anotado e nomeado de propósito: `resolved` colidiria com o
+  // `const resolved = await resolveTemplateRow(...)` 60 linhas abaixo,
+  // e a anotação explícita transforma um futuro catch que não lança
+  // num erro claro de atribuição definida (TS2454), não numa união
+  // confusa com undefined.
+  let resolvedProvider: ResolvedProvider;
   try {
-    resolved = await resolveProvider(db, accountId);
+    resolvedProvider = await resolveProvider(db, accountId);
   } catch (err) {
     if (err instanceof ProviderResolutionError) {
       throw new SendMessageError(err.code, err.message, err.status);
     }
     throw err;
   }
-  const { provider, config, decryptedToken } = resolved;
+  const { provider, config, decryptedToken } = resolvedProvider;
 
   // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
   if (isLegacyFormat(config.access_token)) {
@@ -1523,9 +1528,15 @@ Substitua o bloco das linhas 254-285 (do comentário `// WhatsApp config, accoun
 Atualize os imports no topo do arquivo: remova `decrypt` do import de `@/lib/whatsapp/encryption` (mantenha `encrypt` e `isLegacyFormat`), remova `phoneVariants` e `isRecipientNotAllowedError` do import de `phone-utils` (mantenha `sanitizePhoneForMeta` e `isValidE164`), remova o import inteiro de `@/lib/whatsapp/meta-api` **exceto** `type MediaKind`, e acrescente:
 
 ```ts
-import { resolveProvider, ProviderResolutionError } from '@/lib/whatsapp/provider/resolve';
+import {
+  resolveProvider,
+  ProviderResolutionError,
+  type ResolvedProvider,
+} from '@/lib/whatsapp/provider/resolve';
 import { sendWithAddressRetry } from '@/lib/whatsapp/provider/retry';
 ```
+
+Atualize também o cabeçalho do arquivo (linhas 6-19): o item 3 da lista deixa de ser "sends to Meta (with phone-variant retry + contact auto-fix)" e passa a descrever o envio pelo provedor com a política de retry DELE; e a frase final "straight extraction ... ~250 lines of Meta plumbing" sai — o arquivo agora nunca toca uma API de provedor diretamente, `src/lib/whatsapp/provider/` é quem faz isso.
 
 - [ ] **Step 3: Trocar `attempt` para usar o provedor**
 
