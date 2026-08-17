@@ -81,6 +81,15 @@ As 5 falhas são **pré-existentes e não relacionadas** — dependem do locale/
 | `src/lib/whatsapp/broadcast-resume.ts` | idem, se montar seu próprio `BroadcastPlan` |
 | `src/app/api/whatsapp/broadcast/route.ts` | envio inline próprio; loop mantém o `break` |
 | `src/app/api/whatsapp/react/route.ts` | `provider.sendReaction`, sem retry |
+| `src/app/api/whatsapp/config/route.ts` | Task 13: `assertMetaConfig` antes do try de corrupção; `select('*')` |
+| `src/app/api/whatsapp/config/verify-registration/route.ts` | Task 13: idem |
+| `src/app/api/whatsapp/media/[mediaId]/route.ts` | Task 13: `assertMetaConfig` |
+| `src/app/api/whatsapp/templates/{submit,sync}/route.ts` | Task 13: `assertMetaConfig` antes do check de `waba_id` |
+| `src/app/api/whatsapp/templates/[id]/route.ts` | Task 13: dois handlers |
+| `src/app/api/whatsapp/webhook/route.ts` | Task 13: gate + `continue` no loop |
+| `src/app/api/whatsapp/webhook/route.test.ts` | Task 13: fixture ganha `phone_number_id` |
+| `src/components/settings/whatsapp-config.tsx` | Task 2: estado tipado `WhatsAppConfigMeta` + guard de provedor no fetch |
+| `docs/public-api.md` | `provider_not_implemented` (501) |
 
 ---
 
@@ -2487,6 +2496,20 @@ Registrado aqui para que ninguém "complete" o refactor por conta própria:
 - **Não toca no webhook inbound.** `src/app/api/whatsapp/webhook/route.ts` continua 100% Meta. É plano 2.
 - **Não toca em UI.** Nenhum seletor de provedor, nenhum QR. É plano 3.
 - **Não conserta as 5 falhas de locale/fuso.** Trabalho separado, não relacionado.
+- **Não adiciona cobertura de teste aos caminhos que não tinham.** Honestidade sobre o que a suíte verde prova: dos seis caminhos de envio migrados, **dois** têm o corpo migrado exercitado de verdade — `send-message.ts` (14 testes, mocka só `meta-api`) e os dois planners de broadcast (22 testes). `flows/meta-send.ts` e `automations/meta-send.ts` são mockados por inteiro pelas suítes dos motores; `deliverBroadcast`, a rota inline de broadcast e a rota react não têm teste. Nesses, o gate real foi typecheck + o adaptador Meta ser pass-through verificado (23 testes de `provider/`) + traçado manual nas reviews. Trabalho separado.
+
+## Mudanças de comportamento — a lista completa e honesta
+
+"Zero mudança de comportamento" vale para toda entrada alcançável hoje. As exceções, para a descrição do PR:
+
+1. Três strings novas de `resolveProvider` podem chegar a `automation_logs.error_message` (renderizado verbatim) e a `flow_run_events.payload.detail` — a de config ausente muda de texto; as outras duas são inalcançáveis com o CHECK da 040.
+2. Dois rejects novos, inalcançáveis hoje: `provider_not_implemented` 501 (linha não-Meta) e `whatsapp_not_configured` 400 (Meta sem `phone_number_id`) — antes seria um POST a `.../null/messages` → 502.
+3. `sendWithAddressRetry` loga um `console.warn` por variante rejeitada; os quatro loops originais eram silenciosos.
+4. **Webhook: falha de `decrypt` deixa de derrubar o lote.** Antes, `decrypt` sem guarda lançava para fora de `processWebhook` e o `after()` logava e descartava o resto das entries daquela entrega. Agora loga `[webhook] skipping change: decrypt_failed` e segue. Alcançável com `ENCRYPTION_KEY` rotacionada; melhoria estrita, mas é mudança.
+
+## Decisão pendente do dono: idioma dos comentários
+
+`main` tem zero comentários em português em `src/` e `supabase/`. Esta branch adicionou português em ~19 arquivos de `src/`, na migração 040 e no `verify-schema.sql` — o módulo `provider/` inteiro, e comentários isolados dentro de arquivos em inglês (`send-message.ts`, rotas de config/templates/webhook, `whatsapp-config.tsx`, `types/index.ts`). Um módulo novo inteiro em português é uma escolha coerente; salpicar em arquivos em inglês é o que se espalha e é chato de desfazer. Decidir antes dos planos 2 e 3, que dobram o volume.
 - **Não unifica a persistência.** Os quatro caminhos continuam com o próprio `INSERT` em `messages`. Tentador, mas é outro refactor com outro risco — e o seam de transporte já entrega o que a Evolution precisa.
 - **Não mexe em `sanitizePhoneForMeta` nem no write-back de `contacts.phone`.** A conversão E.164 ↔ JID e o risco de sobrescrever o telefone real do contato entram no plano 2, junto com o provedor que realmente precisa disso.
 - **Não adiciona `checkConnection()` à interface.** Ele pertence a ela, mas na Meta não há estado de sessão análogo — o mais próximo é `registered_at` / `subscribed_apps_at`, semântica diferente. Implementar agora seria inventar um retorno para um método sem consumidor. Entra no plano 2, junto com o healthcheck periódico que o consome.
