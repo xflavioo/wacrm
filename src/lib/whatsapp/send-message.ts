@@ -21,27 +21,20 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import {
-  sendTextMessage,
-  sendTemplateMessage,
-  sendMediaMessage,
-  sendInteractiveButtons,
-  sendInteractiveList,
-  type MediaKind,
-} from '@/lib/whatsapp/meta-api';
+import type { MediaKind } from '@/lib/whatsapp/meta-api';
 import {
   validateInteractivePayload,
   interactivePayloadPreviewText,
   type InteractiveMessagePayload,
 } from '@/lib/whatsapp/interactive';
-import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
+import { encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
-  sanitizePhoneForMeta,
-  isValidE164,
-  phoneVariants,
-  isRecipientNotAllowedError,
-} from '@/lib/whatsapp/phone-utils';
+  resolveProvider,
+  ProviderResolutionError,
+} from '@/lib/whatsapp/provider/resolve';
+import { sendWithAddressRetry } from '@/lib/whatsapp/provider/retry';
+import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import type { MessageTemplate } from '@/types';
 import {
   resolveTemplateRow,
@@ -119,8 +112,13 @@ export function validateSendMessageParams(params: {
   templateName?: string | null;
   interactivePayload?: InteractiveMessagePayload | null;
 }): void {
-  const { messageType, contentText, mediaUrl, templateName, interactivePayload } =
-    params;
+  const {
+    messageType,
+    contentText,
+    mediaUrl,
+    templateName,
+    interactivePayload,
+  } = params;
 
   if (!messageType) {
     throw new SendMessageError('bad_request', 'message_type is required', 400);
@@ -251,28 +249,23 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-
-  if (configError || !config) {
-    throw new SendMessageError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  // WhatsApp config + provedor, account-scoped.
+  let resolved;
+  try {
+    resolved = await resolveProvider(db, accountId);
+  } catch (err) {
+    if (err instanceof ProviderResolutionError) {
+      throw new SendMessageError(err.code, err.message, err.status);
+    }
+    throw err;
   }
-
-  const accessToken = decrypt(config.access_token);
+  const { provider, config, decryptedToken } = resolved;
 
   // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
   if (isLegacyFormat(config.access_token)) {
     void db
       .from('whatsapp_config')
-      .update({ access_token: encrypt(accessToken) })
+      .update({ access_token: encrypt(decryptedToken) })
       .eq('id', config.id)
       .then(({ error }: { error: { message: string } | null }) => {
         if (error) {
@@ -338,9 +331,7 @@ export async function sendMessageToConversation(
 
   const attempt = async (phone: string): Promise<string> => {
     if (messageType === 'template') {
-      const result = await sendTemplateMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      const result = await provider.sendTemplate({
         to: phone,
         templateName: templateName!,
         language: sendLanguage,
@@ -352,9 +343,7 @@ export async function sendMessageToConversation(
       return result.messageId;
     }
     if (isMediaKind) {
-      const result = await sendMediaMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      const result = await provider.sendMedia({
         to: phone,
         kind: messageType as MediaKind,
         link: mediaUrl!,
@@ -367,9 +356,7 @@ export async function sendMessageToConversation(
     if (messageType === 'interactive') {
       const p = interactivePayload!;
       if (p.kind === 'buttons') {
-        const result = await sendInteractiveButtons({
-          phoneNumberId: config.phone_number_id,
-          accessToken,
+        const result = await provider.sendInteractiveButtons({
           to: phone,
           bodyText: p.body,
           headerText: p.header || undefined,
@@ -379,9 +366,7 @@ export async function sendMessageToConversation(
         });
         return result.messageId;
       }
-      const result = await sendInteractiveList({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      const result = await provider.sendInteractiveList({
         to: phone,
         bodyText: p.body,
         buttonLabel: p.button_label,
@@ -392,9 +377,7 @@ export async function sendMessageToConversation(
       });
       return result.messageId;
     }
-    const result = await sendTextMessage({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
+    const result = await provider.sendText({
       to: phone,
       text: contentText!,
       contextMessageId,
@@ -402,38 +385,23 @@ export async function sendMessageToConversation(
     return result.messageId;
   };
 
-  // Send via Meta — retry across phone-number variants if Meta rejects
-  // with "recipient not in allowed list"; persist a working variant
-  // back to the contact so the next send goes straight through.
+  // Envia pelo provedor — retry entre variantes de endereço conforme a
+  // política DELE; persiste a variante que funcionou de volta no
+  // contato para o próximo envio ir direto.
   let waMessageId = '';
   let workingPhone = sanitizedPhone;
   try {
-    const variants = phoneVariants(sanitizedPhone);
-    let lastError: unknown = null;
-
-    for (const variant of variants) {
-      try {
-        waMessageId = await attempt(variant);
-        workingPhone = variant;
-        lastError = null;
-        break;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (!isRecipientNotAllowedError(message)) {
-          throw err;
-        }
-        lastError = err;
-        console.warn(
-          `[send-message] variant "${variant}" rejected by Meta, trying next…`
-        );
-      }
-    }
-
-    if (lastError) throw lastError;
+    const outcome = await sendWithAddressRetry(
+      provider,
+      sanitizedPhone,
+      attempt
+    );
+    waMessageId = outcome.messageId;
+    workingPhone = outcome.workingAddress;
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
+      err instanceof Error ? err.message : 'Unknown provider API error';
+    console.error('[send-message] send failed for all variants:', message);
     throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
   }
 
