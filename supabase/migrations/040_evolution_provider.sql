@@ -61,7 +61,10 @@
 --      roteável pelo webhook da Meta e continuaria reivindicando o
 --      número no UNIQUE da migração 013. O CHECK torna o híbrido
 --      irrepresentável; a troca de provedor é obrigada a limpar a
---      identidade do provedor anterior na mesma escrita.
+--      identidade do provedor anterior na mesma escrita. Vale para
+--      TODAS as colunas Meta-only — inclusive `verify_token`, que é um
+--      segredo, e os carimbos de registro da migração 015 — não só
+--      para as três que dão nome às branches.
 --
 -- O QR Code NÃO ganha coluna. Ele é credencial de pareamento de
 -- dispositivo e expira em ~20s; será servido por rota autenticada e
@@ -122,7 +125,12 @@ BEGIN
         OR
         (provider = 'evolution' AND evolution_url IS NOT NULL
                                 AND evolution_instance IS NOT NULL
-                                AND phone_number_id IS NULL)
+                                AND phone_number_id IS NULL
+                                AND waba_id IS NULL
+                                AND verify_token IS NULL
+                                AND registered_at IS NULL
+                                AND subscribed_apps_at IS NULL
+                                AND last_registration_error IS NULL)
       );
   END IF;
 END $$;

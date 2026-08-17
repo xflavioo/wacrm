@@ -131,6 +131,11 @@ export function WhatsAppConfig() {
       }
 
       if (data) {
+        // Linha de outro provedor: este painel é Meta-only até o plano 3.
+        if (data && (data.provider ?? 'meta') !== 'meta') {
+          setConfig(null);
+          return;
+        }
         setConfig(data);
         setPhoneNumberId(data.phone_number_id || '');
         setWabaId(data.waba_id || '');

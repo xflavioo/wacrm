@@ -289,11 +289,15 @@ interface WhatsAppConfigBase {
   access_token: string;
   status: 'connected' | 'disconnected' | 'connecting';
   connected_at?: string;
+  created_at?: string;
+  updated_at?: string;
   /**
    * When true (the default), the inbound webhook copies received media
    * into the `chat-media` bucket so attachments outlive Meta's ~30-day
    * retention. Turning it off keeps storage flat and accepts that
-   * inbound attachments expire. Migração 039.
+   * inbound attachments expire. A coluna é NOT NULL DEFAULT TRUE
+   * (migração 039); o `?` existe porque uma linha pode ser lida contra
+   * um banco que ainda não rodou a 039.
    */
   mirror_inbound_media?: boolean;
 }
@@ -315,6 +319,12 @@ export interface WhatsAppConfigMeta extends WhatsAppConfigBase {
   last_registration_error?: string;
 }
 
+/**
+ * As colunas Meta-only que este variant omite (waba_id, verify_token,
+ * registered_at, subscribed_apps_at, last_registration_error) não são
+ * só convenção: o CHECK da migração 040 as força a NULL quando
+ * provider = 'evolution'.
+ */
 export interface WhatsAppConfigEvolution extends WhatsAppConfigBase {
   provider: 'evolution';
   /** Base URL do servidor Evolution, ex. `https://evolution.example.com`. */
