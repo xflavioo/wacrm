@@ -2298,47 +2298,68 @@ Expected: PASS, 8 testes.
 
 - [ ] **Step 5: Aplicar nos oito sites**
 
-Em cada um, substitua o par `config.phone_number_id` + `decrypt(config.access_token)` pela chamada única. O padrão, usando `templates/sync/route.ts:164` como exemplo:
+Os oito sites **não são uniformes** — três usam `waba_id` (não `phone_number_id`) contra o Graph, dois envolvem o `decrypt` num try/catch de "token corrompido", e um roda dentro do loop do webhook. A regra comum é uma só: **a guarda de provedor vem antes de qualquer decrypt, e nunca dentro de um try que classifica falha de decrypt como corrupção de token.** Mapa por arquivo:
 
-```ts
-    // antes
-    const accessToken = decrypt(config.access_token)
-
-    // depois
-    const { phoneNumberId, accessToken } = assertMetaConfig(config)
-```
-
-e trocar os usos de `config.phone_number_id` por `phoneNumberId` no restante do handler.
-
-Import a acrescentar em cada arquivo:
+Import a acrescentar em cada um:
 
 ```ts
 import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
 ```
 
-O import de `decrypt` sai, **exceto** em `config/route.ts`, que também **grava** a credencial e continua precisando de `encrypt`.
+O import de `decrypt` sai de todos, **exceto** `config/route.ts` (que também grava e precisa de `encrypt`).
 
-Dois casos merecem atenção:
+**A) Sites simples — `decrypt` sem try/catch próprio.** Troque `const accessToken = decrypt(config.access_token)` por `const { accessToken } = assertMetaConfig(config)`. Se o handler usa `config.phone_number_id` depois, desestruture também `phoneNumberId` e troque os usos; se usa `config.waba_id` (os três de templates), **deixe `config.waba_id` como está** — `assertMetaConfig` já garantiu que a linha é Meta, e `waba_id` continua sendo lido da linha:
+- `media/[mediaId]/route.ts:65`
+- `templates/sync/route.ts:164`
+- `templates/submit/route.ts:165`
+- `templates/[id]/route.ts:152` (handler de edição) e `:292` (handler de delete) — **dois handlers, duas guardas**
 
-- **`webhook/route.ts:298`** roda dentro do handler de eventos, onde não há resposta HTTP para devolver. Envolva em `try/catch`, logue, e siga — o webhook nunca deve derrubar o processamento do lote:
+Nesses, se `assertMetaConfig` lançar `ProviderResolutionError` (linha não-Meta), a exceção sobe ao catch externo do handler → `toErrorResponse` → 500 genérico. **Aceitável para o plano 1**: é inalcançável hoje (nada cria linha Evolution) e é falha alta, não vazamento. O plano 3 refina para 400 com mensagem quando esconder esses botões na UI.
 
-  ```ts
+**B) Sites com try/catch de corrupção de token — a guarda vai ANTES do try.** `config/route.ts:113-129` e `verify-registration/route.ts:72-84` fazem `try { accessToken = decrypt(...) } catch { return "token_corrupted / needs_reset" }`. Se a guarda ficar dentro desse try, uma linha Evolution seria diagnosticada como "chave de criptografia mudou, clique em Reset" — o oposto da verdade. Padrão:
+
+```ts
+    // Guarda de provedor ANTES do decrypt: uma linha não-Meta não é
+    // "token corrompido" — é outro provedor, e este painel é Meta-only.
+    let metaCreds: { phoneNumberId: string; accessToken: string }
+    try {
+      metaCreds = assertMetaConfig(config)
+    } catch (err) {
+      if (err instanceof ProviderResolutionError) {
+        return NextResponse.json(
+          { connected: false, reason: 'provider_mismatch', message: err.message },
+          { status: 200 }
+        )
+      }
+      // Qualquer outro erro aqui é o decrypt falhando — cai no
+      // diagnóstico de token corrompido, exatamente como antes.
+      console.error('[whatsapp/config GET] Token decryption failed:', err)
+      return NextResponse.json(
+        { connected: false, reason: 'token_corrupted', needs_reset: true, message: '<a mensagem original inalterada>' },
+        { status: 200 }
+      )
+    }
+    const accessToken = metaCreds.accessToken
+```
+
+Adapte o shape do JSON ao de cada rota (`verify-registration` usa `{ live, checks, message }`; use `checks: { config_exists: true, provider_is_meta: false }` para o mismatch e mantenha o `token_decryptable: false` para o caso de decrypt). Importe também `ProviderResolutionError`. Leia a mensagem original de cada catch e **preserve-a verbatim** no ramo de corrupção.
+
+**C) Webhook — `webhook/route.ts:298`**, dentro do `for` sobre `entry`, sem resposta HTTP a devolver. Envolva, logue, `continue`:
+
+```ts
       let decryptedAccessToken: string
       try {
         ({ accessToken: decryptedAccessToken } = assertMetaConfig(config))
       } catch (err) {
         console.error(
-          '[webhook] skipping: config is not a Meta provider',
+          '[webhook] skipping entry: config is not a Meta provider or token failed to decrypt',
           err instanceof Error ? err.message : err
         )
         continue
       }
-  ```
+```
 
-  Confirme que `continue` é válido no contexto (o site está dentro do `for` sobre `entry`). Se não for, use `return` da função de processamento.
-
-- **`templates/[id]/route.ts`** tem **dois** sites (`:152` e `:292`), em handlers diferentes. Os dois precisam da guarda.
-
+Confirme que `continue` é válido no contexto (o site está dentro do `for` sobre `entry`; há um `continue` cinco linhas acima para o caso de configs duplicadas — mesmo escopo). Note que este site já resolve a config por `phone_number_id` (não por `account_id`), então uma linha Evolution nunca chega aqui de qualquer forma — a guarda é defesa em profundidade contra `phone_number_id` residual, que a 040 tornou impossível.
 - [ ] **Step 6: Verificar que nenhum decrypt cru sobrou**
 
 Run:
