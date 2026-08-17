@@ -732,14 +732,20 @@ describe('metaProvider', () => {
     );
   });
 
-  // Recebe o erro cru: Error, string, ou qualquer coisa que um fetch
-  // rejeitado possa lançar. Só o texto do 131030 é retryable.
+  // Recebe o erro cru. Só um Error cujo texto casa o 131030 é retryable;
+  // um não-Error NUNCA é — mesmo comportamento dos loops originais de
+  // broadcast, cujo fallback 'Unknown error' nunca casava. E o predicado
+  // é TOTAL: roda dentro do catch dos loops de broadcast, fora de
+  // qualquer try, então não pode lançar nem para um objeto sem
+  // conversão primitiva.
   it('treats Meta error 131030 as a retryable address error', () => {
     const p = metaProvider(CREDS);
     expect(p.isRetryableAddressError(new Error('(#131030) not in allowed list'))).toBe(true);
-    expect(p.isRetryableAddressError('recipient not in the allowed list')).toBe(true);
     expect(p.isRetryableAddressError(new Error('rate limit hit'))).toBe(false);
+    // Não-Error: nunca retryable, e nunca lança.
+    expect(p.isRetryableAddressError('recipient not in the allowed list')).toBe(false);
     expect(p.isRetryableAddressError(undefined)).toBe(false);
+    expect(p.isRetryableAddressError(Object.create(null))).toBe(false);
   });
 
   // Os três forwards mais pesados. Um typo de campo o TS pega (excess
@@ -899,10 +905,12 @@ export function metaProvider(creds: MetaCredentials): WhatsAppProvider {
     addressVariants: (phone: string) => phoneVariants(phone),
     // Stringifica aqui — a mesma linha que os chamadores tinham
     // antes do check. É política da Meta procurar o 131030 no texto.
+    // TOTAL por construção: este predicado roda dentro do `catch` dos
+    // loops de broadcast, fora de qualquer try — se ele próprio
+    // lançasse (String() num objeto sem conversão primitiva), a exceção
+    // abortaria o broadcast inteiro. Um não-Error nunca é retryable.
     isRetryableAddressError: (error: unknown) =>
-      isRecipientNotAllowedError(
-        error instanceof Error ? error.message : String(error)
-      ),
+      error instanceof Error && isRecipientNotAllowedError(error.message),
 
     async sendText(args: ProviderSendTextArgs): Promise<ProviderSendResult> {
       return sendTextMessage({
@@ -1257,10 +1265,18 @@ const META_ROW = {
 describe('resolveProvider', () => {
   it('builds a Meta provider from a meta row and decrypts the token', async () => {
     const { db, seen } = dbReturning(META_ROW);
-    const { provider, config } = await resolveProvider(db, 'acct-1');
+    const { provider, config, decryptedToken } = await resolveProvider(
+      db,
+      'acct-1'
+    );
 
     expect(provider.kind).toBe('meta');
     expect(config.id).toBe('cfg-1');
+    // O token que chega ao provedor é o DESCRIPTOGRAFADO. Sem esta
+    // asserção, passar o ciphertext ao metaProvider (e daí para
+    // graph.facebook.com) deixaria a suíte inteira verde.
+    expect(decryptedToken).toBe('decrypted:cipher');
+    expect(decrypt).toHaveBeenCalledWith('cipher');
     // Tenancy: a ÚNICA coisa que este módulo não pode errar. Sem esta
     // asserção, remover o filtro de account_id deixaria a suíte verde.
     expect(seen.table).toBe('whatsapp_config');
@@ -1914,10 +1930,10 @@ export interface BroadcastPlan {
   broadcastId: string;
   templateName: string;
   templateLanguage: string;
-  /** Provedor já vinculado às credenciais da conta. Substitui os
-   *  antigos `phoneNumberId` + `accessToken`: o plano é construído uma
-   *  vez e reusado em N destinatários, então resolver aqui mantém o
-   *  único SELECT + decrypt que o código sempre teve. */
+  /** Provider already bound to the account's credentials. Replaces the
+   *  old `phoneNumberId` + `accessToken`: the plan is built once and
+   *  reused across N recipients, so resolving here keeps the single
+   *  SELECT + decrypt this code has always had. */
   provider: WhatsAppProvider;
   templateRow: MessageTemplate | null;
   planned: PlannedRecipient[];
@@ -1938,8 +1954,8 @@ import type { WhatsAppProvider } from '@/lib/whatsapp/provider/types';
 Substitua o bloco das linhas 112-125 (do comentário `// Config (fail fast ...)` até `const accessToken = decrypt(config.access_token);`) por:
 
 ```ts
-  // Provedor (fail fast + provides the audit trail owner already
-  // resolved by the caller). Resolvido UMA vez para o plano inteiro.
+  // Provider (fail fast + provides the audit trail owner the caller
+  // already resolved). Resolved ONCE for the whole plan.
   let provider: WhatsAppProvider;
   try {
     ({ provider } = await resolveProvider(db, accountId));
