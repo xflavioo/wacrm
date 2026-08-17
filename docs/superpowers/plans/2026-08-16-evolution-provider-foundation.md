@@ -554,9 +554,11 @@ export interface WhatsAppProvider {
   readonly kind: ProviderKind;
 
   /**
-   * Endereços a tentar, em ordem, para um telefone E.164. A Meta
-   * devolve variantes de trunk-0 (sandbox); provedores sem essa quirk
-   * devolvem um único elemento.
+   * Endereços a tentar, em ordem, para um telefone JÁ SANITIZADO
+   * (só dígitos, sem `+` — o que `sanitizePhoneForMeta` devolve). A
+   * Meta devolve variantes de trunk-0 (sandbox); provedores sem essa
+   * quirk devolvem um único elemento. Passar um E.164 com `+` produz
+   * variantes inúteis: os chamadores sanitizam antes.
    */
   addressVariants(phone: string): string[];
 
@@ -734,6 +736,83 @@ describe('metaProvider', () => {
     expect(p.isRetryableAddressError('recipient not in the allowed list')).toBe(true);
     expect(p.isRetryableAddressError(new Error('rate limit hit'))).toBe(false);
     expect(p.isRetryableAddressError(undefined)).toBe(false);
+  });
+
+  // Os três forwards mais pesados. Um typo de campo o TS pega (excess
+  // property check); um CROSS-WIRE de campos do mesmo tipo — header no
+  // footer, templateName no language — compila em silêncio. Estes
+  // testes existem para esse caso, e sendTemplate é o caminho de
+  // broadcast, o de maior volume do app.
+  it('forwards every template field, including messageParams', async () => {
+    const template = { id: 't-1', name: 'promo' } as never;
+    const messageParams = { body: ['Ana'] } as never;
+    await metaProvider(CREDS).sendTemplate({
+      to: '37063949836',
+      templateName: 'promo',
+      language: 'pt_BR',
+      template,
+      messageParams,
+      params: ['Ana'],
+      contextMessageId: 'wamid.PARENT',
+    });
+
+    expect(metaApi.sendTemplateMessage).toHaveBeenCalledWith({
+      phoneNumberId: 'pn-1',
+      accessToken: 'tok-1',
+      to: '37063949836',
+      templateName: 'promo',
+      language: 'pt_BR',
+      template,
+      messageParams,
+      params: ['Ana'],
+      contextMessageId: 'wamid.PARENT',
+    });
+  });
+
+  it('forwards interactive-button fields without cross-wiring header/footer', async () => {
+    const buttons = [{ id: 'b1', title: 'Sim' }];
+    await metaProvider(CREDS).sendInteractiveButtons({
+      to: '37063949836',
+      bodyText: 'Confirma?',
+      buttons,
+      headerText: 'HEADER',
+      footerText: 'FOOTER',
+    });
+
+    expect(metaApi.sendInteractiveButtons).toHaveBeenCalledWith({
+      phoneNumberId: 'pn-1',
+      accessToken: 'tok-1',
+      to: '37063949836',
+      bodyText: 'Confirma?',
+      buttons,
+      headerText: 'HEADER',
+      footerText: 'FOOTER',
+      contextMessageId: undefined,
+    });
+  });
+
+  it('forwards interactive-list fields without cross-wiring header/footer', async () => {
+    const sections = [{ title: 'S', rows: [{ id: 'r1', title: 'Um' }] }];
+    await metaProvider(CREDS).sendInteractiveList({
+      to: '37063949836',
+      bodyText: 'Escolha',
+      buttonLabel: 'Ver',
+      sections,
+      headerText: 'HEADER',
+      footerText: 'FOOTER',
+    });
+
+    expect(metaApi.sendInteractiveList).toHaveBeenCalledWith({
+      phoneNumberId: 'pn-1',
+      accessToken: 'tok-1',
+      to: '37063949836',
+      bodyText: 'Escolha',
+      buttonLabel: 'Ver',
+      sections,
+      headerText: 'HEADER',
+      footerText: 'FOOTER',
+      contextMessageId: undefined,
+    });
   });
 
   it('returns the reaction wamid instead of discarding it', async () => {
@@ -917,7 +996,7 @@ export function metaProvider(creds: MetaCredentials): WhatsAppProvider {
 
 Run: `npx vitest run src/lib/whatsapp/provider/meta.test.ts`
 
-Expected: PASS, 7 testes.
+Expected: PASS, 10 testes.
 
 Se o teste `forwards credentials and args` falhar por causa de uma propriedade extra (`contextMessageId: undefined` vs ausente), ajuste a **asserção** para `expect.objectContaining({...})` — não mude a implementação. Repassar `undefined` explicitamente é o comportamento atual de `send-message.ts` e tem que ser preservado.
 
@@ -2177,7 +2256,7 @@ Run: `npm run test`
 
 Expected: **exatamente** `Test Files 2 failed | 77 passed`, `Tests 5 failed | 824 passed (829)`. As 5 falhas têm que ser as mesmas de `currency.test.ts` e `date-utils.test.ts` do baseline. **Qualquer falha nova reprova a task** — volte ao commit da task correspondente e compare o comportamento.
 
-Se a contagem total de testes subiu de 829, é porque as Tasks 4-6 adicionaram 17 (7+5+5) e a Task 13 mais 2: o esperado passa a ser `848`, com as mesmas 5 falhas.
+Se a contagem total de testes subiu de 829, é porque as Tasks 4-6 adicionaram 20 (10+5+5) e a Task 13 mais 2: o esperado passa a ser `851`, com as mesmas 5 falhas.
 
 - [ ] **Step 2: Typecheck**
 
