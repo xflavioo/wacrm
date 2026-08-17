@@ -270,6 +270,10 @@ Em `supabase/ci/verify-schema.sql`, dentro do bloco `DO $$ ... END $$` que já e
   -- DO-guard que silenciosamente não criou a constraint continuaria
   -- verde — o exato modo de falha que este arquivo existe para pegar.
   -- check_violation dispara ANTES dos gatilhos de FK.
+  -- A ORDEM das sondas é load-bearing: a positiva, rodando antes com o
+  -- mesmo status 'connecting', é quem prova que o status_check aceita o
+  -- valor — então um check_violation aqui só pode vir do
+  -- provider_fields_check. Não reordene.
   BEGIN
     INSERT INTO whatsapp_config (user_id, account_id, provider, access_token, status)
     VALUES (gen_random_uuid(), gen_random_uuid(), 'evolution', 'x', 'connecting');
@@ -366,11 +370,23 @@ export interface WhatsAppConfigEvolution extends WhatsAppConfigBase {
 export type WhatsAppConfig = WhatsAppConfigMeta | WhatsAppConfigEvolution;
 ```
 
-- [ ] **Step 2: Ver o que quebrou**
+- [ ] **Step 2: Ver o que quebrou e deixar o typecheck verde**
 
 Run: `npm run typecheck`
 
-Expected: erros nos lugares que leem `config.phone_number_id` sem estreitar o tipo. **Anote-os, mas não conserte agora** — as Tasks 7-10 passam por todos. Se algum erro estiver **fora** dos quatro arquivos de envio e de `src/components/settings/whatsapp-config.tsx`, pare e reporte: é um consumidor que este plano não mapeou.
+O único consumidor do tipo é `src/components/settings/whatsapp-config.tsx:33-61` (estado `useState<WhatsAppConfigType | null>`) — os caminhos de envio leem linhas cruas do Supabase (`select('*')`, não tipadas) e não quebram. Erros esperados: leituras de campos Meta-only (`waba_id`, `verify_token`, `registered_at`…) sobre a união.
+
+Conserte **já nesta task** (todo commit deve compilar): troque o tipo do estado para a variante Meta —
+
+```ts
+import type { WhatsAppConfigMeta } from '@/types';
+// ...
+const [config, setConfig] = useState<WhatsAppConfigMeta | null>(null);
+```
+
+É honesto, não gambiarra: este componente É o painel Meta hoje; o seletor de provedor do plano 3 o reconstrói de qualquer forma.
+
+Se aparecer erro em **qualquer outro arquivo**, pare e reporte: é um consumidor que este plano não mapeou.
 
 - [ ] **Step 3: Commit**
 

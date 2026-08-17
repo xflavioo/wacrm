@@ -76,6 +76,10 @@ BEGIN
   -- DO-guard que silenciosamente não criou a constraint continuaria
   -- verde — o exato modo de falha que este arquivo existe para pegar.
   -- check_violation dispara ANTES dos gatilhos de FK.
+  -- A ORDEM das sondas é load-bearing: a positiva, rodando antes com o
+  -- mesmo status 'connecting', é quem prova que o status_check aceita o
+  -- valor — então um check_violation aqui só pode vir do
+  -- provider_fields_check. Não reordene.
   BEGIN
     INSERT INTO whatsapp_config (user_id, account_id, provider, access_token, status)
     VALUES (gen_random_uuid(), gen_random_uuid(), 'evolution', 'x', 'connecting');
