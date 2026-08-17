@@ -32,7 +32,11 @@ As 5 falhas são **pré-existentes e não relacionadas** — dependem do locale/
 | D3 | A credencial da Evolution vai na coluna `access_token` existente, cifrada pelo mesmo `encrypt()`. A coluna `provider` desambigua o conteúdo. |
 | D9 | `status` ganha o valor `connecting`. O QR **nunca** é persistido. |
 
-**Estilo:** o repo mistura ponto-e-vírgula (`send-message.ts`) e sem (`flows/meta-send.ts`). Formate **só os arquivos da task** com `npx prettier --write <arquivos>`. **NUNCA rode `npm run format`** — ele varre o repo inteiro e, como há drift pré-existente de estilo, reescreve ~360 arquivos não relacionados (descoberto na Task 2). Uma limpeza dedicada de formatação fica fora deste plano.
+**Estilo — regra dividida em duas, e é importante:**
+
+- **Arquivos NOVOS** (Tasks 3-6, `src/lib/whatsapp/provider/*`): `npx prettier --write <arquivo>`. Nascem conformes.
+- **Arquivos EXISTENTES que você modifica** (Tasks 7-13): **NÃO rode prettier neles.** Todos os alvos das Tasks 8-12 (`flows/meta-send.ts`, `automations/meta-send.ts`, `broadcast-core.ts`, `broadcast-resume.ts`, `broadcast/route.ts`, `react/route.ts`) têm drift pré-existente em relação à `.prettierrc` — a maioria é no-semicolon enquanto a config diz `semi: true`. Rodar prettier reescreve o arquivo inteiro (na Task 8 deu 137/219 linhas para um refactor de 59/147) e torna o diff inauditável, que é o oposto do que um plano de "zero mudança de comportamento" precisa. **Imite o estilo local do arquivo** (com ou sem `;`, aspas, quebras) e deixe a conformidade para uma limpeza dedicada, fora deste plano.
+- **NUNCA rode `npm run format`** — varre o repo inteiro e reescreve ~360 arquivos (descoberto na Task 2).
 
 **Os seis sites que serão migrados:**
 
@@ -1466,7 +1470,7 @@ Expected: PASS, 6 testes.
 - [ ] **Step 5: Commit**
 
 ```bash
-npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
+# SEM prettier: arquivo existente com drift de estilo — imite o estilo local (ver "Estilo" no topo)
 git add src/lib/whatsapp/provider/resolve.ts src/lib/whatsapp/provider/resolve.test.ts
 git commit -m "feat(provider): add resolveProvider"
 ```
@@ -1635,7 +1639,7 @@ Expected: PASS, o mesmo número de testes do Step 1.
 - [ ] **Step 5: Commit**
 
 ```bash
-npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
+# SEM prettier: arquivo existente com drift de estilo — imite o estilo local (ver "Estilo" no topo)
 git add src/lib/whatsapp/send-message.ts
 git commit -m "refactor(send): route sendMessageToConversation through the provider seam"
 ```
@@ -1772,7 +1776,7 @@ Expected: PASS, a mesma contagem do Step 1.
 - [ ] **Step 7: Commit**
 
 ```bash
-npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
+# SEM prettier: arquivo existente com drift de estilo — imite o estilo local (ver "Estilo" no topo)
 git add src/lib/flows/meta-send.ts
 git commit -m "refactor(flows): route engine sends through the provider seam"
 ```
@@ -1872,7 +1876,7 @@ Expected: PASS, a mesma contagem do Step 1.
 - [ ] **Step 5: Commit**
 
 ```bash
-npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
+# SEM prettier: arquivo existente com drift de estilo — imite o estilo local (ver "Estilo" no topo)
 git add src/lib/automations/meta-send.ts
 git commit -m "refactor(automations): route engine sends through the provider seam"
 ```
@@ -1986,7 +1990,7 @@ Expected: PASS, a mesma contagem do Step 1.
 - [ ] **Step 7: Commit**
 
 ```bash
-npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
+# SEM prettier: arquivo existente com drift de estilo — imite o estilo local (ver "Estilo" no topo)
 git add src/lib/whatsapp/broadcast-core.ts src/lib/whatsapp/broadcast-resume.ts
 git commit -m "refactor(broadcast): route delivery through the provider seam"
 ```
@@ -2070,7 +2074,7 @@ Expected: PASS, a mesma contagem do Step 1.
 - [ ] **Step 6: Commit**
 
 ```bash
-npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
+# SEM prettier: arquivo existente com drift de estilo — imite o estilo local (ver "Estilo" no topo)
 git add src/app/api/whatsapp/broadcast/route.ts
 git commit -m "refactor(broadcast-route): route inline sends through the provider seam"
 ```
@@ -2135,7 +2139,7 @@ Expected: PASS, a mesma contagem do Task 11.
 - [ ] **Step 4: Commit**
 
 ```bash
-npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
+# SEM prettier: arquivo existente com drift de estilo — imite o estilo local (ver "Estilo" no topo)
 git add src/app/api/whatsapp/react/route.ts
 git commit -m "refactor(react): route reaction sends through the provider seam"
 ```
@@ -2295,7 +2299,7 @@ Expected: **nenhuma saída.** Único lugar que descriptografa `access_token` pas
 - [ ] **Step 7: Commit**
 
 ```bash
-npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
+# SEM prettier: arquivo existente com drift de estilo — imite o estilo local (ver "Estilo" no topo)
 git add -A
 git commit -m "fix(provider): refuse Meta-only routes on a non-Meta config"
 ```
