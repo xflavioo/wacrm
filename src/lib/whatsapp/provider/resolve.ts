@@ -1,16 +1,16 @@
 // ============================================================
 // Ponto único onde `whatsapp_config` vira um provedor utilizável.
 //
-// Antes desta função, os quatro caminhos de envio faziam cada um o seu
-// SELECT + decrypt e carregavam a linha crua até a chamada de rede.
-// Isso é o que tornava "adicionar um provedor" uma mudança em cinco
-// lugares em vez de um.
+// Antes desta função, cada caminho de envio fazia o seu próprio
+// SELECT + decrypt e carregava a linha crua até a chamada de rede —
+// nove sites em sete arquivos. Isso é o que tornava "adicionar um
+// provedor" uma mudança espalhada em vez de uma.
 //
-// A linha crua continua sendo devolvida junto porque os chamadores
-// precisam de `config.id` (auto-upgrade de ciphertext CBC legado) e de
-// `config.mirror_inbound_media`. O que eles NÃO precisam mais é de
-// `phone_number_id` e `access_token` — esses agora ficam presos dentro
-// do provedor.
+// A linha crua continua sendo devolvida junto porque `send-message.ts`
+// precisa de `config.id` + `config.access_token` para o auto-upgrade de
+// ciphertext CBC legado. O que os chamadores NÃO precisam mais é de
+// `phone_number_id` e do token em claro — esses ficam presos dentro do
+// provedor.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -86,10 +86,16 @@ export async function resolveProvider(
   // Decidir o provedor ANTES de descriptografar: o segredo só sai da
   // coluna quando já se sabe para quem ele é. Mesma disciplina do
   // `assertMetaConfig` (Task 13).
-  if (kind === 'evolution') {
+  //
+  // Fail-closed: `!== 'meta'`, não `=== 'evolution'`. Só Meta tem
+  // transporte hoje; qualquer outro valor — 'evolution', um terceiro
+  // provedor futuro, ou lixo numa base sem o CHECK da 040 — tem que
+  // parar AQUI, e não cair no ramo Meta e mandar a credencial errada
+  // para graph.facebook.com.
+  if (kind !== 'meta') {
     throw new ProviderResolutionError(
       'provider_not_implemented',
-      'Evolution provider is not implemented yet.',
+      `Provider "${kind}" is not implemented yet.`,
       501
     );
   }

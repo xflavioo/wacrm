@@ -10,14 +10,32 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { resolveProvider, ProviderResolutionError } from './resolve';
 
-/** Supabase de mentira que devolve uma linha de whatsapp_config. */
-function dbReturning(row: unknown, error: unknown = null): SupabaseClient {
+/**
+ * Supabase de mentira que devolve uma linha de whatsapp_config — e
+ * GRAVA o que foi consultado. A tabela e o filtro de tenancy são o que
+ * esta função tem de mais importante; sem registrá-los, apagar o
+ * `.eq('account_id', …)` deixaria a suíte verde enquanto sete caminhos
+ * de envio leem a config de outro tenant.
+ */
+function dbReturning(row: unknown, error: unknown = null) {
+  const seen: { table?: string; filters: [string, unknown][] } = {
+    filters: [],
+  };
   const chain = {
     select: () => chain,
-    eq: () => chain,
+    eq: (col: string, val: unknown) => {
+      seen.filters.push([col, val]);
+      return chain;
+    },
     single: async () => ({ data: row, error }),
   };
-  return { from: () => chain } as unknown as SupabaseClient;
+  const db = {
+    from: (table: string) => {
+      seen.table = table;
+      return chain;
+    },
+  } as unknown as SupabaseClient;
+  return { db, seen };
 }
 
 const META_ROW = {
@@ -31,13 +49,15 @@ const META_ROW = {
 
 describe('resolveProvider', () => {
   it('builds a Meta provider from a meta row and decrypts the token', async () => {
-    const { provider, config } = await resolveProvider(
-      dbReturning(META_ROW),
-      'acct-1'
-    );
+    const { db, seen } = dbReturning(META_ROW);
+    const { provider, config } = await resolveProvider(db, 'acct-1');
 
     expect(provider.kind).toBe('meta');
     expect(config.id).toBe('cfg-1');
+    // Tenancy: a ÚNICA coisa que este módulo não pode errar. Sem esta
+    // asserção, remover o filtro de account_id deixaria a suíte verde.
+    expect(seen.table).toBe('whatsapp_config');
+    expect(seen.filters).toContainEqual(['account_id', 'acct-1']);
   });
 
   // Linhas anteriores à migração 040 não têm `provider`. Tratar
@@ -45,21 +65,24 @@ describe('resolveProvider', () => {
   // base que ainda não rodou a migração.
   it('treats a row with no provider column as meta', async () => {
     const legacy = { ...META_ROW, provider: undefined };
-    const { provider } = await resolveProvider(dbReturning(legacy), 'acct-1');
+    const { provider } = await resolveProvider(
+      dbReturning(legacy).db,
+      'acct-1'
+    );
 
     expect(provider.kind).toBe('meta');
   });
 
   it('throws whatsapp_not_configured when no row exists', async () => {
     await expect(
-      resolveProvider(dbReturning(null), 'acct-1')
+      resolveProvider(dbReturning(null).db, 'acct-1')
     ).rejects.toBeInstanceOf(ProviderResolutionError);
   });
 
   it('throws when a meta row has no phone_number_id', async () => {
     const broken = { ...META_ROW, phone_number_id: null };
     await expect(
-      resolveProvider(dbReturning(broken), 'acct-1')
+      resolveProvider(dbReturning(broken).db, 'acct-1')
     ).rejects.toThrow(/phone_number_id/);
   });
 
@@ -79,9 +102,20 @@ describe('resolveProvider', () => {
       status: 'connected',
     };
 
-    await expect(resolveProvider(dbReturning(evo), 'acct-1')).rejects.toThrow(
-      /not implemented/i
-    );
+    await expect(
+      resolveProvider(dbReturning(evo).db, 'acct-1')
+    ).rejects.toThrow(/not implemented/i);
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+
+  // Fail-closed: um valor de provider desconhecido (base sem o CHECK da
+  // 040, terceiro provedor futuro sem transporte) NÃO pode cair no ramo
+  // Meta e mandar a credencial para graph.facebook.com.
+  it('refuses an unknown provider value instead of defaulting to meta', async () => {
+    const weird = { ...META_ROW, provider: 'evolutoin' };
+    await expect(
+      resolveProvider(dbReturning(weird).db, 'acct-1')
+    ).rejects.toThrow(/not implemented/i);
     expect(decrypt).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,7 @@
 // Adaptador puro sobre `meta-api.ts`: nenhuma regra nova, nenhuma
 // chamada de rede própria. A única coisa que ele acrescenta é vincular
 // `phoneNumberId` + `accessToken` uma vez, em vez de repassá-los em
-// cada chamada — que era o motivo de os quatro caminhos de envio
+// cada chamada — que era o motivo de os caminhos de envio
 // precisarem carregar a config inteira até o ponto do fetch.
 // ============================================================
 
@@ -46,7 +46,7 @@ export function metaProvider(creds: MetaCredentials): WhatsAppProvider {
     kind: 'meta',
 
     addressVariants: (phone: string) => phoneVariants(phone),
-    // Stringifica aqui — a mesma linha que os quatro chamadores tinham
+    // Stringifica aqui — a mesma linha que os chamadores tinham
     // antes do check. É política da Meta procurar o 131030 no texto.
     isRetryableAddressError: (error: unknown) =>
       isRecipientNotAllowedError(

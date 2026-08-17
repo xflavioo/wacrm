@@ -1,7 +1,9 @@
 // ============================================================
-// O loop de retry por variante de endereço, extraído dos quatro
-// lugares onde estava copiado (send-message.ts, flows/meta-send.ts ×2,
-// automations/meta-send.ts).
+// O loop de retry por variante de endereço, extraído dos cinco
+// lugares onde estava copiado (send-message.ts, flows/meta-send.ts ×3,
+// automations/meta-send.ts). Os dois loops de broadcast mantêm a
+// própria estrutura (best-effort por destinatário) e só trocam a
+// política pelo provedor.
 //
 // A política é do PROVEDOR: quais endereços tentar e o que conta como
 // "tente o próximo". Este helper só executa. Assim a Evolution entra
