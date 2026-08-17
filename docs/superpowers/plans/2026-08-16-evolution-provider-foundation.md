@@ -2458,12 +2458,17 @@ Expected: nenhuma saída, ou só linhas precedidas de `import type`. Um `import 
 
 - [ ] **Step 5: Confirmar que o seam é o único caminho**
 
-Run:
+Os métodos da interface `WhatsAppProvider` têm **os mesmos nomes** das funções de `meta-api` (`sendInteractiveButtons` etc. — decisão da Task 3 para o adaptador ser repasse puro), então um grep pelo nome nu casa `provider.sendInteractiveButtons(...)` e dá falso positivo. Use os dois greps abaixo, que distinguem:
+
 ```bash
-grep -rln "sendTextMessage\|sendTemplateMessage\|sendMediaMessage\|sendInteractiveButtons\|sendInteractiveList\|sendReactionMessage" src/ --include=*.ts --include=*.tsx | grep -v ".test." | grep -v "provider/" | grep -v "meta-api.ts"
+# (a) quem IMPORTA uma funcao de envio de meta-api como VALOR, fora de provider/
+grep -rln "import\s*{[^}]*\b\(sendTextMessage\|sendTemplateMessage\|sendMediaMessage\|sendInteractiveButtons\|sendInteractiveList\|sendReactionMessage\)\b[^}]*}\s*from\s*'@/lib/whatsapp/meta-api'" src/ --include=*.ts --include=*.tsx | grep -v "\.test\." | grep -v "provider/"
+
+# (b) chamadas NUAS (nao provider.X, nao comentario)
+grep -rn "sendTextMessage\|sendTemplateMessage\|sendMediaMessage\|sendInteractiveButtons\|sendInteractiveList\|sendReactionMessage" src/ --include=*.ts --include=*.tsx | grep -v "\.test\." | grep -v "provider/" | grep -v "meta-api.ts" | grep -v "provider\.\(sendTextMessage\|sendTemplateMessage\|sendMediaMessage\|sendInteractiveButtons\|sendInteractiveList\|sendReactionMessage\)" | grep -v ":\s*\(//\|\*\|/\*\)"
 ```
 
-Expected: **nenhuma saída.** Depois deste plano, `src/lib/whatsapp/provider/meta.ts` deve ser o único não-teste que chama as funções de envio de `meta-api.ts`. Se aparecer algum arquivo, é um sétimo caminho de envio que nem este plano nem a análise mapearam — **pare e reporte** antes de seguir para o plano 2.
+Expected: **nenhuma saída em nenhum dos dois.** Depois deste plano, `src/lib/whatsapp/provider/meta.ts` deve ser o único não-teste que importa e chama as funções de envio de `meta-api.ts`. Se (a) acusar um arquivo, é um sétimo caminho de envio que nem este plano nem a análise mapearam — **pare e reporte** antes de seguir para o plano 2.
 
 - [ ] **Step 6: Commit final**
 
