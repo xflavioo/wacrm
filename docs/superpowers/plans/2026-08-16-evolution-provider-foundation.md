@@ -404,15 +404,23 @@ const [config, setConfig] = useState<WhatsAppConfigMeta | null>(null);
 
 É honesto, não gambiarra: este componente É o painel Meta hoje; o seletor de provedor do plano 3 o reconstrói de qualquer forma.
 
-E, como o client do browser não tem generics do Supabase (`select('*')` devolve `any`), a anotação sozinha é documentação, não enforcement. Torne-a verdadeira com um guard de duas linhas no `fetchConfig`, logo antes do `setConfig(data)`:
+E, como o client do browser não tem generics do Supabase (`select('*')` devolve `any`), a anotação sozinha é documentação, não enforcement. Torne-a verdadeira no `fetchConfig`: em vez de um `return` antecipado (que pularia o reset de formulário/status e deixaria campos do Meta anterior na tela numa re-busca), trate a linha de outro provedor como ausência de linha, roteando pelo `else` que já existe. Substitua os dois `if (data)` (o do formulário e o do health-check) por:
 
 ```ts
       // Linha de outro provedor: este painel é Meta-only até o plano 3.
-      if (data && (data.provider ?? 'meta') !== 'meta') {
-        setConfig(null);
-        return;
-      }
+      // Tratá-la como "sem config" (em vez de retornar cedo) faz o caso
+      // passar pelo mesmo reset de formulário/status que a ausência de
+      // linha — senão uma re-busca (troca de conta) deixaria campos e
+      // badge do Meta anterior na tela.
+      const metaRow = data && (data.provider ?? 'meta') === 'meta' ? data : null;
+
+      if (metaRow) {
+        setConfig(metaRow);
+        setPhoneNumberId(metaRow.phone_number_id || '');
+        // ... (resto do bloco inalterado, lendo de metaRow)
 ```
+
+e `if (metaRow)` no bloco de health-check mais abaixo.
 
 Se aparecer erro em **qualquer outro arquivo**, pare e reporte: é um consumidor que este plano não mapeou.
 

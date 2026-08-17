@@ -130,22 +130,24 @@ export function WhatsAppConfig() {
         console.error('Failed to load config row:', error);
       }
 
-      if (data) {
-        // Linha de outro provedor: este painel é Meta-only até o plano 3.
-        if (data && (data.provider ?? 'meta') !== 'meta') {
-          setConfig(null);
-          return;
-        }
-        setConfig(data);
-        setPhoneNumberId(data.phone_number_id || '');
-        setWabaId(data.waba_id || '');
+      // Linha de outro provedor: este painel é Meta-only até o plano 3.
+      // Tratá-la como "sem config" (em vez de retornar cedo) faz o caso
+      // passar pelo mesmo reset de formulário/status que a ausência de
+      // linha — senão uma re-busca (troca de conta) deixaria campos e
+      // badge do Meta anterior na tela.
+      const metaRow = data && (data.provider ?? 'meta') === 'meta' ? data : null;
+
+      if (metaRow) {
+        setConfig(metaRow);
+        setPhoneNumberId(metaRow.phone_number_id || '');
+        setWabaId(metaRow.waba_id || '');
         setAccessToken(MASKED_TOKEN);
         setVerifyToken('');
         setPin('');
         setTokenEdited(false);
         // Undefined on a row read before migration 039 — treat that as
         // on, matching the webhook's own default.
-        setMirrorMedia(data.mirror_inbound_media !== false);
+        setMirrorMedia(metaRow.mirror_inbound_media !== false);
       } else {
         setConfig(null);
         setPhoneNumberId('');
@@ -160,7 +162,7 @@ export function WhatsAppConfig() {
       setRegistrationProbe(null);
 
       // Then verify health via the API (decrypts token + pings Meta)
-      if (data) {
+      if (metaRow) {
         try {
           const res = await fetch('/api/whatsapp/config', { method: 'GET' });
           const payload = await res.json();
