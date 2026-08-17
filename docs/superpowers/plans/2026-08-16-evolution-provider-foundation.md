@@ -466,6 +466,7 @@ import type {
   InteractiveListSection,
   MediaKind,
 } from '@/lib/whatsapp/meta-api';
+import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder';
 import type { MessageTemplate, WhatsAppProviderKind } from '@/types';
 
 /**
@@ -507,7 +508,13 @@ export interface ProviderSendTemplateArgs {
   templateName: string;
   language?: string;
   template?: MessageTemplate;
-  messageParams?: unknown;
+  /**
+   * Tipado como `SendTimeParams` (não `unknown`): é o que
+   * `sendTemplateMessage` aceita, e um `unknown` aqui obrigaria o
+   * adaptador Meta a um cast — além de jogar fora a checagem que a
+   * rota de broadcast já tem hoje.
+   */
+  messageParams?: SendTimeParams;
   params?: string[];
   contextMessageId?: string;
 }
@@ -553,8 +560,17 @@ export interface WhatsAppProvider {
    */
   addressVariants(phone: string): string[];
 
-  /** True quando o erro significa "tente o próximo endereço". */
-  isRetryableAddressError(message: string): boolean;
+  /**
+   * True quando o erro significa "tente o próximo endereço".
+   *
+   * Recebe o erro CRU (`unknown`), não a mensagem: hoje `meta-api.ts`
+   * lança `new Error(prose)` e o predicado da Meta procura o código
+   * 131030 no texto — mas um provedor que exponha status HTTP ou corpo
+   * JSON estruturado precisa poder decidir por eles, sem ser obrigado
+   * a traduzir seus erros para inglês-da-Meta. Cada provedor stringifica
+   * do jeito que precisar.
+   */
+  isRetryableAddressError(error: unknown): boolean;
 
   sendText(args: ProviderSendTextArgs): Promise<ProviderSendResult>;
   sendMedia(args: ProviderSendMediaArgs): Promise<ProviderSendResult>;
@@ -580,7 +596,12 @@ export interface WhatsAppProvider {
   sendInteractiveList(
     args: ProviderSendInteractiveListArgs
   ): Promise<ProviderSendResult>;
-  sendReaction(args: ProviderSendReactionArgs): Promise<void>;
+  /**
+   * Devolve `ProviderSendResult` como os demais: `sendReactionMessage`
+   * já retorna o wamid da reação, e descartá-lo aqui só criaria uma
+   * exceção de forma na interface. O chamador atual ignora o valor.
+   */
+  sendReaction(args: ProviderSendReactionArgs): Promise<ProviderSendResult>;
 }
 ```
 
@@ -618,7 +639,7 @@ vi.mock('@/lib/whatsapp/meta-api', () => ({
   sendTemplateMessage: vi.fn(async () => ({ messageId: 'wamid.TPL' })),
   sendInteractiveButtons: vi.fn(async () => ({ messageId: 'wamid.BTN' })),
   sendInteractiveList: vi.fn(async () => ({ messageId: 'wamid.LIST' })),
-  sendReactionMessage: vi.fn(async () => undefined),
+  sendReactionMessage: vi.fn(async () => ({ messageId: 'wamid.REACT' })),
 }));
 
 import * as metaApi from '@/lib/whatsapp/meta-api';
@@ -705,10 +726,31 @@ describe('metaProvider', () => {
     );
   });
 
+  // Recebe o erro cru: Error, string, ou qualquer coisa que um fetch
+  // rejeitado possa lançar. Só o texto do 131030 é retryable.
   it('treats Meta error 131030 as a retryable address error', () => {
     const p = metaProvider(CREDS);
-    expect(p.isRetryableAddressError('(#131030) not in allowed list')).toBe(true);
-    expect(p.isRetryableAddressError('rate limit hit')).toBe(false);
+    expect(p.isRetryableAddressError(new Error('(#131030) not in allowed list'))).toBe(true);
+    expect(p.isRetryableAddressError('recipient not in the allowed list')).toBe(true);
+    expect(p.isRetryableAddressError(new Error('rate limit hit'))).toBe(false);
+    expect(p.isRetryableAddressError(undefined)).toBe(false);
+  });
+
+  it('returns the reaction wamid instead of discarding it', async () => {
+    const result = await metaProvider(CREDS).sendReaction({
+      to: '37063949836',
+      targetMessageId: 'wamid.TARGET',
+      emoji: '👍',
+    });
+
+    expect(result).toEqual({ messageId: 'wamid.REACT' });
+    expect(metaApi.sendReactionMessage).toHaveBeenCalledWith({
+      phoneNumberId: 'pn-1',
+      accessToken: 'tok-1',
+      to: '37063949836',
+      targetMessageId: 'wamid.TARGET',
+      emoji: '👍',
+    });
   });
 });
 ```
@@ -772,8 +814,12 @@ export function metaProvider(creds: MetaCredentials): WhatsAppProvider {
     kind: 'meta',
 
     addressVariants: (phone: string) => phoneVariants(phone),
-    isRetryableAddressError: (message: string) =>
-      isRecipientNotAllowedError(message),
+    // Stringifica aqui — a mesma linha que os quatro chamadores tinham
+    // antes do check. É política da Meta procurar o 131030 no texto.
+    isRetryableAddressError: (error: unknown) =>
+      isRecipientNotAllowedError(
+        error instanceof Error ? error.message : String(error)
+      ),
 
     async sendText(args: ProviderSendTextArgs): Promise<ProviderSendResult> {
       return sendTextMessage({
@@ -853,8 +899,10 @@ export function metaProvider(creds: MetaCredentials): WhatsAppProvider {
       });
     },
 
-    async sendReaction(args: ProviderSendReactionArgs): Promise<void> {
-      await sendReactionMessage({
+    async sendReaction(
+      args: ProviderSendReactionArgs
+    ): Promise<ProviderSendResult> {
+      return sendReactionMessage({
         ...auth,
         to: args.to,
         targetMessageId: args.targetMessageId,
@@ -869,7 +917,7 @@ export function metaProvider(creds: MetaCredentials): WhatsAppProvider {
 
 Run: `npx vitest run src/lib/whatsapp/provider/meta.test.ts`
 
-Expected: PASS, 6 testes.
+Expected: PASS, 7 testes.
 
 Se o teste `forwards credentials and args` falhar por causa de uma propriedade extra (`contextMessageId: undefined` vs ausente), ajuste a **asserção** para `expect.objectContaining({...})` — não mude a implementação. Repassar `undefined` explicitamente é o comportamento atual de `send-message.ts` e tem que ser preservado.
 
@@ -903,7 +951,7 @@ import type { WhatsAppProvider } from './types';
 /** Provedor de mentira com política de endereço controlável. */
 function fakeProvider(
   variants: string[],
-  retryable: (m: string) => boolean
+  retryable: (e: unknown) => boolean
 ): WhatsAppProvider {
   return {
     kind: 'meta',
@@ -932,7 +980,7 @@ describe('sendWithAddressRetry', () => {
     });
 
     const result = await sendWithAddressRetry(
-      fakeProvider(['A', 'B'], (m) => m.includes('131030')),
+      fakeProvider(['A', 'B'], (e) => String(e).includes('131030')),
       'A',
       attempt
     );
@@ -1033,10 +1081,10 @@ export async function sendWithAddressRetry(
       const messageId = await attempt(candidate);
       return { messageId, workingAddress: candidate };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       // Não-retryable sobe na hora: repetir "token inválido" em três
-      // variantes é só três chamadas perdidas.
-      if (!provider.isRetryableAddressError(message)) throw err;
+      // variantes é só três chamadas perdidas. O erro vai CRU para o
+      // provedor — cada um stringifica (ou não) do jeito que precisar.
+      if (!provider.isRetryableAddressError(err)) throw err;
       lastError = err;
       console.warn(
         `[provider:${provider.kind}] address "${candidate}" rejected, trying next…`
@@ -1779,11 +1827,11 @@ Na linha 269, dentro do `try`:
         });
 ```
 
-E no `catch`, a guarda de retry:
+E no `catch`, a guarda de retry — passe o erro **cru** (`error`), não a `message` já stringificada; a `message` continua sendo calculada para o `lastError` do destinatário:
 
 ```ts
         // Only a "recipient not allowed" error is worth another variant.
-        if (!plan.provider.isRetryableAddressError(message)) break;
+        if (!plan.provider.isRetryableAddressError(error)) break;
 ```
 
 O `break` fica. A estrutura do loop fica. Só a origem da política muda.
@@ -1870,11 +1918,13 @@ Na linha ~188, dentro do `try`:
           })
 ```
 
-E a guarda no `catch`:
+E a guarda no `catch` — erro **cru**, não a `message` (que segue existindo para o `lastError`):
 
 ```ts
-          if (!provider.isRetryableAddressError(message)) break
+          if (!provider.isRetryableAddressError(err)) break
 ```
+
+(Confira o nome da variável do `catch` neste arquivo — se for `error`, use `error`.)
 
 - [ ] **Step 5: Rodar e confirmar**
 
@@ -2127,7 +2177,7 @@ Run: `npm run test`
 
 Expected: **exatamente** `Test Files 2 failed | 77 passed`, `Tests 5 failed | 824 passed (829)`. As 5 falhas têm que ser as mesmas de `currency.test.ts` e `date-utils.test.ts` do baseline. **Qualquer falha nova reprova a task** — volte ao commit da task correspondente e compare o comportamento.
 
-Se a contagem total de testes subiu de 829, é porque as Tasks 4-6 adicionaram 16 (6+5+5) e a Task 13 mais 2: o esperado passa a ser `847`, com as mesmas 5 falhas.
+Se a contagem total de testes subiu de 829, é porque as Tasks 4-6 adicionaram 17 (7+5+5) e a Task 13 mais 2: o esperado passa a ser `848`, com as mesmas 5 falhas.
 
 - [ ] **Step 2: Typecheck**
 
