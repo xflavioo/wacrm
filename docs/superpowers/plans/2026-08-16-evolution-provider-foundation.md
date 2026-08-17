@@ -2233,9 +2233,21 @@ describe('assertMetaConfig', () => {
   // O ponto inteiro da task: nunca descriptografar a credencial de um
   // provedor e mandá-la para o outro. A recusa acontece ANTES do
   // decrypt — o segredo não sai da coluna.
+  // Pina também code+status: assertMetaConfig diz 400 provider_mismatch
+  // ("operação errada para este provedor") onde resolveProvider diz 501
+  // provider_not_implemented ("transporte ainda não existe") — a
+  // distinção é deliberada e nada mais a fixa.
   it('refuses an evolution row instead of handing back its key', () => {
     const evo = { ...META_ROW, provider: 'evolution', phone_number_id: null };
-    expect(() => assertMetaConfig(evo)).toThrow(/meta/i);
+    let caught: unknown;
+    try {
+      assertMetaConfig(evo);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ProviderResolutionError);
+    expect((caught as ProviderResolutionError).code).toBe('provider_mismatch');
+    expect((caught as ProviderResolutionError).status).toBe(400);
     expect(decrypt).not.toHaveBeenCalled();
   });
 });
@@ -2322,7 +2334,17 @@ O import de `decrypt` sai de todos, **exceto** dois: `config/route.ts` (que tamb
 - `templates/submit/route.ts:165`
 - `templates/[id]/route.ts:152` (handler de edição) e `:292` (handler de delete) — **dois handlers, duas guardas**
 
-Nesses, se `assertMetaConfig` lançar `ProviderResolutionError` (linha não-Meta), a exceção sobe ao catch externo do handler → `toErrorResponse` → 500 genérico. **Aceitável para o plano 1**: é inalcançável hoje (nada cria linha Evolution) e é falha alta, não vazamento. O plano 3 refina para 400 com mensagem quando esconder esses botões na UI.
+**Ordem importa: a guarda vem ANTES de qualquer check de `waba_id`.** `templates/sync`, `templates/submit` e o DELETE de `templates/[id]` fazem `if (!config.waba_id) return 400 "WABA ID missing. Re-connect your account in Settings."` — e a 040 força `waba_id IS NULL` em linhas Evolution. Se a guarda ficar depois desse check, um admin Evolution que clicar "Sync from Meta" (o `TemplateManager` não tem gate de provedor) recebe a instrução de reconectar credenciais Meta que ele não tem — a mesma classe de diagnóstico falso que o padrão B existe para matar. Coloque `assertMetaConfig` logo depois do `if (configError || !config)`, antes de tudo o mais. Identidade de provedor precede presença de campo.
+
+**E honre `ProviderResolutionError.status` no catch externo.** Nos cinco sites, adicione no **topo** do catch externo, antes do que ele já faz:
+
+```ts
+      if (err instanceof ProviderResolutionError) {
+        return NextResponse.json({ error: err.message }, { status: err.status })
+      }
+```
+
+Sem isso a exceção cai num 500 — e seis arquivos irmãos (`broadcast/route.ts:126`, `react/route.ts:99`, `send-message.ts`, `broadcast-core.ts`, `broadcast-resume.ts`) já seguem a convenção de honrar `err.status`. Importe `ProviderResolutionError` junto com `assertMetaConfig`.
 
 **B) Sites com try/catch de corrupção de token — a guarda vai ANTES do try.** `config/route.ts:113-129` e `verify-registration/route.ts:72-84` fazem `try { accessToken = decrypt(...) } catch { return "token_corrupted / needs_reset" }`. Se a guarda ficar dentro desse try, uma linha Evolution seria diagnosticada como "chave de criptografia mudou, clique em Reset" — o oposto da verdade. Padrão:
 
@@ -2334,8 +2356,11 @@ Nesses, se `assertMetaConfig` lançar `ProviderResolutionError` (linha não-Meta
       metaCreds = assertMetaConfig(config)
     } catch (err) {
       if (err instanceof ProviderResolutionError) {
+        // `err.code` já É a razão de fio ('provider_mismatch' ou
+        // 'whatsapp_not_configured'); hard-codar 'provider_mismatch'
+        // mentiria para o caso de phone_number_id ausente.
         return NextResponse.json(
-          { connected: false, reason: 'provider_mismatch', message: err.message },
+          { connected: false, reason: err.code, message: err.message },
           { status: 200 }
         )
       }
@@ -2350,7 +2375,7 @@ Nesses, se `assertMetaConfig` lançar `ProviderResolutionError` (linha não-Meta
     const accessToken = metaCreds.accessToken
 ```
 
-Adapte o shape do JSON ao de cada rota (`verify-registration` usa `{ live, checks, message }`; use `checks: { config_exists: true, provider_is_meta: false }` para o mismatch e mantenha o `token_decryptable: false` para o caso de decrypt). Importe também `ProviderResolutionError`. Leia a mensagem original de cada catch e **preserve-a verbatim** no ramo de corrupção.
+Adapte o shape do JSON ao de cada rota (`verify-registration` usa `{ live, checks, message }`; use `checks: { config_exists: true, provider_is_meta: false }` quando `err.code === 'provider_mismatch'`, uma chave verdadeira como `phone_number_id_present: false` para os outros códigos, e mantenha o `token_decryptable: false` para o caso de decrypt). Importe também `ProviderResolutionError`. Leia a mensagem original de cada catch e **preserve-a verbatim** no ramo de corrupção.
 
 **C) Webhook — `webhook/route.ts:298`**, dentro do `for` sobre `entry`, sem resposta HTTP a devolver. Envolva, logue, `continue`:
 
