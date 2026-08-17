@@ -63,7 +63,8 @@ export async function POST(request: Request) {
     // viewers are read-only.
     //
     // This endpoint writes NOTHING to the database: it reads the config
-    // and template, then calls Meta directly. So unlike the rest of the
+    // and template, then sends through the account's resolved provider.
+    // So unlike the rest of the
     // app there was no RLS policy backstopping a missing role check —
     // resolving `account_id` straight off the profile (which only needs
     // 'viewer') was the ONLY gate, and it let a viewer blast a template

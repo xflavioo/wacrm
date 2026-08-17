@@ -2061,6 +2061,7 @@ Remova `import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'` (linha 3)
 
 ```ts
 import { resolveProvider, ProviderResolutionError } from '@/lib/whatsapp/provider/resolve'
+import type { WhatsAppProvider } from '@/lib/whatsapp/provider/types'
 ```
 
 - [ ] **Step 3: Trocar o carregamento de config**
@@ -2068,7 +2069,7 @@ import { resolveProvider, ProviderResolutionError } from '@/lib/whatsapp/provide
 Substitua as linhas 123-139 (do `const { data: config, error: configError }` até `const accessToken = decrypt(config.access_token)`) por:
 
 ```ts
-    let provider
+    let provider: WhatsAppProvider
     try {
       ;({ provider } = await resolveProvider(supabase, accountId))
     } catch (err) {
