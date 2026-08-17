@@ -5,18 +5,19 @@
 //
 // Given a conversation and message params, this:
 //   1. validates the params for the message type,
-//   2. loads the conversation + contact + WhatsApp config,
-//   3. sends to Meta (with phone-variant retry + contact auto-fix),
+//   2. loads the conversation + contact, and resolves the account's
+//      WhatsApp provider (`resolveProvider`),
+//   3. sends through the provider — address-variant retry and contact
+//      auto-fix follow the PROVIDER's policy (`sendWithAddressRetry`),
 //   4. persists the message + updates the conversation,
 //   5. pauses any active Flow run for the contact (agent stepped in).
 //
-// It is transport-agnostic: it takes a `SupabaseClient` and an
-// `accountId` and throws `SendMessageError` on failure. The callers
-// own auth, rate-limiting, body parsing, and mapping the error to
-// their respective response shapes (internal `{ error }` vs the v1
-// envelope). Behaviour is identical to the original inline route —
-// this is a straight extraction so the public endpoint can reuse it
-// without duplicating ~250 lines of Meta plumbing.
+// It is transport-agnostic in both senses: it takes a `SupabaseClient`
+// and an `accountId` and throws `SendMessageError` on failure, and it
+// never touches a provider API directly — `src/lib/whatsapp/provider/`
+// owns that. The callers own auth, rate-limiting, body parsing, and
+// mapping the error to their respective response shapes (internal
+// `{ error }` vs the v1 envelope).
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -32,6 +33,7 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   resolveProvider,
   ProviderResolutionError,
+  type ResolvedProvider,
 } from '@/lib/whatsapp/provider/resolve';
 import { sendWithAddressRetry } from '@/lib/whatsapp/provider/retry';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
@@ -250,16 +252,16 @@ export async function sendMessageToConversation(
   }
 
   // WhatsApp config + provedor, account-scoped.
-  let resolved;
+  let resolvedProvider: ResolvedProvider;
   try {
-    resolved = await resolveProvider(db, accountId);
+    resolvedProvider = await resolveProvider(db, accountId);
   } catch (err) {
     if (err instanceof ProviderResolutionError) {
       throw new SendMessageError(err.code, err.message, err.status);
     }
     throw err;
   }
-  const { provider, config, decryptedToken } = resolved;
+  const { provider, config, decryptedToken } = resolvedProvider;
 
   // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
   if (isLegacyFormat(config.access_token)) {
