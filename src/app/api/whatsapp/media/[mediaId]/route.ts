@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
-import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
+import {
+  ProviderResolutionError,
+  assertMetaConfig,
+} from '@/lib/whatsapp/provider/resolve'
 
 export async function GET(
   request: Request,
@@ -84,6 +87,15 @@ export async function GET(
       },
     })
   } catch (error) {
+    // A recusa do portão Meta-only é um 400 com causa nomeada, não um
+    // 500 genérico: "Failed to fetch media" manda o usuário caçar uma
+    // falha de rede que não existe.
+    if (error instanceof ProviderResolutionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      )
+    }
     console.error('Error in WhatsApp media GET:', error)
     return NextResponse.json(
       { error: 'Failed to fetch media' },

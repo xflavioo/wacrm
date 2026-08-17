@@ -61,9 +61,13 @@ function supabaseAdmin() {
  * Response shape:
  *   { connected: true,  phone_info: {...} }
  *   { connected: false, reason: 'no_config',        message: '...' }
- *   { connected: false, reason: 'provider_mismatch', message: '...' }
  *   { connected: false, reason: 'token_corrupted',  message: '...', needs_reset: true }
  *   { connected: false, reason: 'meta_api_error',   message: '...' }
+ *
+ * Plus, from the Meta-only gate below, `reason` carries the
+ * ProviderResolutionError code verbatim:
+ *   { connected: false, reason: 'provider_mismatch',       message: '...' }
+ *   { connected: false, reason: 'whatsapp_not_configured', message: '...' }
  */
 export async function GET() {
   try {
@@ -128,16 +132,18 @@ export async function GET() {
     // DENTRO do try abaixo, uma conta Evolution seria diagnosticada
     // como "sua ENCRYPTION_KEY mudou, clique em Reset Configuration" —
     // o oposto da verdade, e um convite para apagar uma config sã.
-    //
-    // Try to decrypt the stored token with the current ENCRYPTION_KEY.
-    // If this fails, the key changed (or was never consistent across envs).
     let metaCreds: { phoneNumberId: string; accessToken: string }
     try {
       metaCreds = assertMetaConfig(config)
     } catch (err) {
       if (err instanceof ProviderResolutionError) {
+        // `reason` repassa o código do erro em vez de assumir
+        // 'provider_mismatch': o portão também recusa uma linha Meta
+        // sem phone_number_id ('whatsapp_not_configured'), e rotular
+        // isso como "provedor errado" mandaria o usuário trocar de
+        // provedor para consertar um campo faltando.
         return NextResponse.json(
-          { connected: false, reason: 'provider_mismatch', message: err.message },
+          { connected: false, reason: err.code, message: err.message },
           { status: 200 }
         )
       }

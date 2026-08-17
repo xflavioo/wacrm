@@ -1,7 +1,10 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
-import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
+import {
+  ProviderResolutionError,
+  assertMetaConfig,
+} from '@/lib/whatsapp/provider/resolve'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
@@ -307,8 +310,14 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       try {
         ({ accessToken: decryptedAccessToken } = assertMetaConfig(config))
       } catch (err) {
+        // Nomeia as duas causas separadamente: `provider_mismatch` é
+        // uma linha de outro provedor, `decrypt_failed` é a
+        // ENCRYPTION_KEY errada. Um operador grepando os logs precisa
+        // distinguir "config de outro provedor" de "chave trocada" —
+        // as remediações não têm nada em comum.
         console.error(
-          '[webhook] skipping entry: config is not a Meta provider or token failed to decrypt',
+          '[webhook] skipping change:',
+          err instanceof ProviderResolutionError ? err.code : 'decrypt_failed',
           err instanceof Error ? err.message : err
         )
         continue

@@ -82,12 +82,17 @@ export async function GET() {
     metaCreds = assertMetaConfig(config)
   } catch (err) {
     if (err instanceof ProviderResolutionError) {
+      // O portão recusa por dois motivos distintos e o `checks` precisa
+      // dizer qual: 'provider_mismatch' é uma conta de outro provedor,
+      // 'whatsapp_not_configured' é uma linha Meta sem phone_number_id.
+      // Reportar a segunda como provider_is_meta:false mandaria o
+      // usuário trocar de provedor para consertar um campo faltando.
       return NextResponse.json({
         live: false,
-        checks: {
-          config_exists: true,
-          provider_is_meta: false,
-        },
+        checks:
+          err.code === 'provider_mismatch'
+            ? { config_exists: true, provider_is_meta: false }
+            : { config_exists: true, phone_number_id_present: false },
         message: err.message,
       })
     }

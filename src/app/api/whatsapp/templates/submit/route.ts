@@ -6,7 +6,10 @@ import {
   requireRole,
   toErrorResponse,
 } from '@/lib/auth/account'
-import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
+import {
+  ProviderResolutionError,
+  assertMetaConfig,
+} from '@/lib/whatsapp/provider/resolve'
 import { submitMessageTemplate } from '@/lib/whatsapp/meta-api'
 import {
   validateTemplatePayload,
@@ -152,6 +155,18 @@ export async function POST(request: Request) {
           { status: 400 },
         )
       }
+      // Submeter template para aprovação é Meta-only. O portão recusa
+      // uma linha de outro provedor ANTES do decrypt, para a credencial
+      // errada nunca chegar ao graph.facebook.com.
+      //
+      // E vem ANTES da checagem de waba_id: a migração 040 força
+      // `waba_id IS NULL` numa linha Evolution, então na ordem inversa
+      // um admin Evolution seria mandado "reconectar sua conta" —
+      // reinserir credenciais do provedor que ele não usa. Identidade
+      // do provedor vem antes de presença de campo, a mesma precedência
+      // que o assertMetaConfig usa por dentro.
+      const { accessToken } = assertMetaConfig(config)
+
       if (!config.waba_id) {
         return NextResponse.json(
           {
@@ -161,11 +176,6 @@ export async function POST(request: Request) {
           { status: 400 },
         )
       }
-
-      // Submeter template para aprovação é Meta-only. O portão recusa
-      // uma linha de outro provedor ANTES do decrypt, para a credencial
-      // errada nunca chegar ao graph.facebook.com.
-      const { accessToken } = assertMetaConfig(config)
 
       // Image headers need a Resumable-Upload handle (Meta rejects a
       // plain URL at creation). Derive it from header_media_url before
@@ -241,6 +251,16 @@ export async function POST(request: Request) {
       dry_run: dryRun,
     })
   } catch (error) {
+    // A recusa do portão Meta-only carrega o próprio status (400) e uma
+    // causa nomeada. Sem isto ela sairia como 500 "Failed to submit
+    // template", que descreve um bug do servidor e não a verdade: esta
+    // conta não usa a Meta.
+    if (error instanceof ProviderResolutionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      )
+    }
     // Auth failures map to 401/403. Handled before the generic branch
     // below, which surfaces `error.message` as a 500 — reporting "you
     // aren't an admin" as a template submission failure would send the

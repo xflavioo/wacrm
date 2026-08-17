@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
+import {
+  ProviderResolutionError,
+  assertMetaConfig,
+} from '@/lib/whatsapp/provider/resolve'
 import {
   deleteMessageTemplate,
   editMessageTemplate,
@@ -221,6 +224,14 @@ export async function PATCH(
       dry_run: isDryRun(),
     })
   } catch (error) {
+    // A recusa do portão Meta-only carrega o próprio status (400) e uma
+    // causa nomeada; dobrá-la num 500 esconderia por que a edição parou.
+    if (error instanceof ProviderResolutionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      )
+    }
     console.error('Error editing template:', error)
     return NextResponse.json(
       {
@@ -285,7 +296,7 @@ export async function DELETE(
         .select('*')
         .eq('account_id', accountId)
         .single()
-      if (configError || !config || !config.waba_id) {
+      if (configError || !config) {
         return NextResponse.json(
           { error: 'WhatsApp not configured — cannot delete on Meta.' },
           { status: 400 },
@@ -293,7 +304,21 @@ export async function DELETE(
       }
       // Apagar template na Meta é Meta-only — mesmo portão do PATCH,
       // antes do decrypt.
+      //
+      // A checagem de waba_id foi separada da de config ausente para o
+      // portão poder rodar entre as duas: a migração 040 força
+      // `waba_id IS NULL` numa linha Evolution, então com a checagem
+      // fundida uma conta Evolution ouvia "WhatsApp não configurado"
+      // quando ela ESTÁ configurada — só não na Meta. A mensagem de
+      // cada ramo é a mesma de antes; só a ordem mudou.
       const { accessToken } = assertMetaConfig(config)
+
+      if (!config.waba_id) {
+        return NextResponse.json(
+          { error: 'WhatsApp not configured — cannot delete on Meta.' },
+          { status: 400 },
+        )
+      }
       try {
         await deleteMessageTemplate({
           wabaId: config.waba_id,
@@ -322,6 +347,13 @@ export async function DELETE(
 
     return NextResponse.json({ success: true, dry_run: isDryRun() })
   } catch (error) {
+    // Mesmo tratamento do PATCH: 400 com causa, não 500 genérico.
+    if (error instanceof ProviderResolutionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      )
+    }
     console.error('Error deleting template:', error)
     return NextResponse.json(
       {

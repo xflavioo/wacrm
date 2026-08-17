@@ -143,9 +143,25 @@ describe('assertMetaConfig', () => {
   // O ponto inteiro da task: nunca descriptografar a credencial de um
   // provedor e mandá-la para o outro. A recusa acontece ANTES do
   // decrypt — o segredo não sai da coluna.
+  //
+  // O código e o status são deliberados e diferentes dos do
+  // `resolveProvider`: aqui é 400 `provider_mismatch` (o chamador pediu
+  // uma operação que esta conta não tem), lá é 501
+  // `provider_not_implemented` (o transporte ainda não existe). Sem
+  // fixar os dois, trocar um pelo outro passaria silenciosamente.
   it('refuses an evolution row instead of handing back its key', () => {
     const evo = { ...META_ROW, provider: 'evolution', phone_number_id: null };
-    expect(() => assertMetaConfig(evo)).toThrow(/meta/i);
+
+    let caught: unknown;
+    try {
+      assertMetaConfig(evo);
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(ProviderResolutionError);
+    expect((caught as ProviderResolutionError).code).toBe('provider_mismatch');
+    expect((caught as ProviderResolutionError).status).toBe(400);
     expect(decrypt).not.toHaveBeenCalled();
   });
 });

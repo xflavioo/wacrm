@@ -5,7 +5,10 @@ import {
   requireRole,
   toErrorResponse,
 } from '@/lib/auth/account'
-import { assertMetaConfig } from '@/lib/whatsapp/provider/resolve'
+import {
+  ProviderResolutionError,
+  assertMetaConfig,
+} from '@/lib/whatsapp/provider/resolve'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
 
@@ -151,6 +154,18 @@ export async function POST() {
       )
     }
 
+    // O catálogo de templates é Meta-only. O portão recusa uma linha
+    // de outro provedor ANTES do decrypt — "Sync from Meta" numa conta
+    // Evolution não pode mandar a chave da Evolution para a Meta.
+    //
+    // E vem ANTES da checagem de waba_id: a migração 040 força
+    // `waba_id IS NULL` numa linha Evolution, então na ordem inversa
+    // um admin Evolution que clica "Sync from Meta" seria mandado
+    // "reconectar sua conta" — reinserir credenciais do provedor que
+    // ele não usa. Identidade do provedor vem antes de presença de
+    // campo, a mesma precedência que o assertMetaConfig usa por dentro.
+    const { accessToken } = assertMetaConfig(config)
+
     if (!config.waba_id) {
       return NextResponse.json(
         {
@@ -160,11 +175,6 @@ export async function POST() {
         { status: 400 },
       )
     }
-
-    // O catálogo de templates é Meta-only. O portão recusa uma linha
-    // de outro provedor ANTES do decrypt — "Sync from Meta" numa conta
-    // Evolution não pode mandar a chave da Evolution para a Meta.
-    const { accessToken } = assertMetaConfig(config)
 
     const metaTemplates: MetaTemplate[] = []
     let nextUrl:
@@ -298,6 +308,15 @@ export async function POST() {
       truncated: pageCount >= PAGE_CAP && nextUrl !== null,
     })
   } catch (error) {
+    // A recusa do portão Meta-only carrega o próprio status (400) e uma
+    // causa nomeada; dobrá-la no 500 genérico abaixo a faria parecer
+    // uma falha do sync em vez de "esta conta não fala com a Meta".
+    if (error instanceof ProviderResolutionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      )
+    }
     // Auth failures map to 401/403 rather than being folded into the
     // generic 500 below, which surfaces `error.message` as a sync failure.
     if (
