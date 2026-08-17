@@ -104,7 +104,7 @@ Crie `supabase/migrations/040_evolution_provider.sql`:
 -- adiada; abrir isso depois é trocar a constraint por
 -- UNIQUE(account_id, provider), e essa migração não fecha essa porta.
 --
--- Quatro mudanças:
+-- Cinco mudanças:
 --
 --   1. `provider` — o discriminador. DEFAULT 'meta' porque toda linha
 --      existente É Meta; sem o default, a coluna NOT NULL não poderia
@@ -144,6 +144,17 @@ Crie `supabase/migrations/040_evolution_provider.sql`:
 --   4. `status` ganha 'connecting'. O Baileys tem um estado
 --      intermediário real (socket abrindo, QR pendente) que a Meta não
 --      tem, e o CHECK de duas posições da 001 não tem onde guardá-lo.
+--
+--   5. `whatsapp_config_provider_fields_check` — cada linha carrega os
+--      campos do SEU provedor e NENHUM do outro. As metades negativas
+--      importam tanto quanto as positivas: trocar de provedor reescreve
+--      a mesma linha (decisão D1), então colunas residuais do provedor
+--      anterior seriam o estado NORMAL, não acidente — e um
+--      `phone_number_id` residual numa linha Evolution continuaria
+--      roteável pelo webhook da Meta e continuaria reivindicando o
+--      número no UNIQUE da migração 013. O CHECK torna o híbrido
+--      irrepresentável; a troca de provedor é obrigada a limpar a
+--      identidade do provedor anterior na mesma escrita.
 --
 -- O QR Code NÃO ganha coluna. Ele é credencial de pareamento de
 -- dispositivo e expira em ~20s; será servido por rota autenticada e
@@ -198,13 +209,26 @@ BEGIN
     ALTER TABLE whatsapp_config
       ADD CONSTRAINT whatsapp_config_provider_fields_check
       CHECK (
-        (provider = 'meta'      AND phone_number_id IS NOT NULL)
+        (provider = 'meta'      AND phone_number_id IS NOT NULL
+                                AND evolution_url IS NULL
+                                AND evolution_instance IS NULL)
         OR
         (provider = 'evolution' AND evolution_url IS NOT NULL
-                                AND evolution_instance IS NOT NULL)
+                                AND evolution_instance IS NOT NULL
+                                AND phone_number_id IS NULL)
       );
   END IF;
 END $$;
+
+-- Documentação de catálogo — mesmo padrão das migrações 038/039, para
+-- o fato mais surpreendente do schema ficar visível num \d+ e não só
+-- enterrado neste arquivo.
+COMMENT ON COLUMN whatsapp_config.provider IS
+  'Transporte de WhatsApp da conta: ''meta'' (Cloud API) ou ''evolution'' (Baileys). Determina o que access_token contém.';
+COMMENT ON COLUMN whatsapp_config.evolution_url IS
+  'Base URL do servidor Evolution API. Preenchida só quando provider=''evolution''.';
+COMMENT ON COLUMN whatsapp_config.evolution_instance IS
+  'Nome da instância no servidor Evolution. Preenchido só quando provider=''evolution''.';
 ```
 
 - [ ] **Step 2: Adicionar a assertion no CI**
@@ -224,6 +248,9 @@ Em `supabase/ci/verify-schema.sql`, dentro do bloco `DO $$ ... END $$` que já e
     RAISE EXCEPTION 'whatsapp_config.provider is missing — migration 040 did not apply';
   END IF;
 
+  -- (As duas sondas rodam como postgres, dono da tabela — RLS não se
+  --  aplica. Se o CI um dia trocar de papel, elas falhariam com
+  --  insufficient_privilege, e a causa seria o harness, não a 040.)
   BEGIN
     INSERT INTO whatsapp_config (user_id, account_id, provider, access_token,
                                  evolution_url, evolution_instance, status)
@@ -237,6 +264,21 @@ Em `supabase/ci/verify-schema.sql`, dentro do bloco `DO $$ ... END $$` que já e
       -- status='connecting' e phone_number_id NULL passaram por todos
       -- os CHECKs — que é exatamente o que a 040 tinha que liberar.
       NULL;
+  END;
+
+  -- Sonda negativa: os CHECKs também precisam RECUSAR. Sem ela, um
+  -- DO-guard que silenciosamente não criou a constraint continuaria
+  -- verde — o exato modo de falha que este arquivo existe para pegar.
+  -- check_violation dispara ANTES dos gatilhos de FK.
+  BEGIN
+    INSERT INTO whatsapp_config (user_id, account_id, provider, access_token, status)
+    VALUES (gen_random_uuid(), gen_random_uuid(), 'evolution', 'x', 'connecting');
+    RAISE EXCEPTION 'provider_fields_check accepted an evolution row with no evolution_url';
+  EXCEPTION
+    WHEN check_violation THEN
+      NULL; -- esperado
+    WHEN foreign_key_violation THEN
+      RAISE EXCEPTION 'provider_fields_check is missing — the bad row sailed past the CHECKs into FK validation';
   END;
 ```
 
@@ -2090,3 +2132,4 @@ Registradas aqui porque foram tomadas junto com este plano:
 
 - **Rotas de gerenciamento em `/api/whatsapp/evolution/*`, não `/api/evolution/*`.** O prefixo importa: [`src/middleware.ts:80-82`](../../../src/middleware.ts) já barra requisição sem sessão em `/api/whatsapp/*`, exceto paths contendo `/webhook`. Pendurar o gerenciamento sob `/api/whatsapp/` herda essa checagem de graça; um namespace novo sobe aberto. **Isto não dispensa a checagem de papel admin no handler** — o middleware só distingue autenticado de anônimo, e qualquer `viewer` da conta passa por ele.
 - **O webhook fica em `/api/evolution/webhook`** — fora do gate, que é o correto para um endpoint chamado por servidor externo, e por isso carrega sua própria autenticação por segredo.
+- **A rota de save (`config/route.ts`) grava `baseRow` sem `provider`.** Correto no plano 1: o DEFAULT 'meta' cobre o INSERT e nada consegue criar linha Evolution ainda. Mas no dia em que o seletor de provedor existir, a troca Meta↔Evolution TEM que limpar as colunas de identidade do provedor anterior no mesmo UPDATE — o `whatsapp_config_provider_fields_check` simétrico da 040 recusa a linha híbrida. O save de provedor é um UPDATE que define o conjunto novo e anula o antigo, atomicamente.
