@@ -2231,10 +2231,12 @@ describe('assertMetaConfig', () => {
   });
 
   // O ponto inteiro da task: nunca descriptografar a credencial de um
-  // provedor e mandá-la para o outro.
+  // provedor e mandá-la para o outro. A recusa acontece ANTES do
+  // decrypt — o segredo não sai da coluna.
   it('refuses an evolution row instead of handing back its key', () => {
     const evo = { ...META_ROW, provider: 'evolution', phone_number_id: null };
     expect(() => assertMetaConfig(evo)).toThrow(/meta/i);
+    expect(decrypt).not.toHaveBeenCalled();
   });
 });
 ```
