@@ -851,7 +851,7 @@ Crie `src/lib/whatsapp/provider/meta.ts`:
 // Adaptador puro sobre `meta-api.ts`: nenhuma regra nova, nenhuma
 // chamada de rede própria. A única coisa que ele acrescenta é vincular
 // `phoneNumberId` + `accessToken` uma vez, em vez de repassá-los em
-// cada chamada — que era o motivo de os quatro caminhos de envio
+// cada chamada — que era o motivo de os caminhos de envio
 // precisarem carregar a config inteira até o ponto do fetch.
 // ============================================================
 
@@ -893,7 +893,7 @@ export function metaProvider(creds: MetaCredentials): WhatsAppProvider {
     kind: 'meta',
 
     addressVariants: (phone: string) => phoneVariants(phone),
-    // Stringifica aqui — a mesma linha que os quatro chamadores tinham
+    // Stringifica aqui — a mesma linha que os chamadores tinham
     // antes do check. É política da Meta procurar o 131030 no texto.
     isRetryableAddressError: (error: unknown) =>
       isRecipientNotAllowedError(
@@ -1122,9 +1122,11 @@ Crie `src/lib/whatsapp/provider/retry.ts`:
 
 ```ts
 // ============================================================
-// O loop de retry por variante de endereço, extraído dos quatro
-// lugares onde estava copiado (send-message.ts, flows/meta-send.ts ×2,
-// automations/meta-send.ts).
+// O loop de retry por variante de endereço, extraído dos cinco
+// lugares onde estava copiado (send-message.ts, flows/meta-send.ts ×3,
+// automations/meta-send.ts). Os dois loops de broadcast mantêm a
+// própria estrutura (best-effort por destinatário) e só trocam a
+// política pelo provedor.
 //
 // A política é do PROVEDOR: quais endereços tentar e o que conta como
 // "tente o próximo". Este helper só executa. Assim a Evolution entra
@@ -1213,14 +1215,30 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 
 import { resolveProvider, ProviderResolutionError } from './resolve';
 
-/** Supabase de mentira que devolve uma linha de whatsapp_config. */
-function dbReturning(row: unknown, error: unknown = null): SupabaseClient {
+/**
+ * Supabase de mentira que devolve uma linha de whatsapp_config — e
+ * GRAVA o que foi consultado. A tabela e o filtro de tenancy são o que
+ * esta função tem de mais importante; sem registrá-los, apagar o
+ * `.eq('account_id', …)` deixaria a suíte verde enquanto sete caminhos
+ * de envio leem a config de outro tenant.
+ */
+function dbReturning(row: unknown, error: unknown = null) {
+  const seen: { table?: string; filters: [string, unknown][] } = { filters: [] };
   const chain = {
     select: () => chain,
-    eq: () => chain,
+    eq: (col: string, val: unknown) => {
+      seen.filters.push([col, val]);
+      return chain;
+    },
     single: async () => ({ data: row, error }),
   };
-  return { from: () => chain } as unknown as SupabaseClient;
+  const db = {
+    from: (table: string) => {
+      seen.table = table;
+      return chain;
+    },
+  } as unknown as SupabaseClient;
+  return { db, seen };
 }
 
 const META_ROW = {
@@ -1234,13 +1252,15 @@ const META_ROW = {
 
 describe('resolveProvider', () => {
   it('builds a Meta provider from a meta row and decrypts the token', async () => {
-    const { provider, config } = await resolveProvider(
-      dbReturning(META_ROW),
-      'acct-1'
-    );
+    const { db, seen } = dbReturning(META_ROW);
+    const { provider, config } = await resolveProvider(db, 'acct-1');
 
     expect(provider.kind).toBe('meta');
     expect(config.id).toBe('cfg-1');
+    // Tenancy: a ÚNICA coisa que este módulo não pode errar. Sem esta
+    // asserção, remover o filtro de account_id deixaria a suíte verde.
+    expect(seen.table).toBe('whatsapp_config');
+    expect(seen.filters).toContainEqual(['account_id', 'acct-1']);
   });
 
   // Linhas anteriores à migração 040 não têm `provider`. Tratar
@@ -1248,27 +1268,28 @@ describe('resolveProvider', () => {
   // base que ainda não rodou a migração.
   it('treats a row with no provider column as meta', async () => {
     const legacy = { ...META_ROW, provider: undefined };
-    const { provider } = await resolveProvider(dbReturning(legacy), 'acct-1');
+    const { provider } = await resolveProvider(dbReturning(legacy).db, 'acct-1');
 
     expect(provider.kind).toBe('meta');
   });
 
   it('throws whatsapp_not_configured when no row exists', async () => {
     await expect(
-      resolveProvider(dbReturning(null), 'acct-1')
+      resolveProvider(dbReturning(null).db, 'acct-1')
     ).rejects.toBeInstanceOf(ProviderResolutionError);
   });
 
   it('throws when a meta row has no phone_number_id', async () => {
     const broken = { ...META_ROW, phone_number_id: null };
     await expect(
-      resolveProvider(dbReturning(broken), 'acct-1')
+      resolveProvider(dbReturning(broken).db, 'acct-1')
     ).rejects.toThrow(/phone_number_id/);
   });
 
   // A Evolution ainda não tem transporte; falhar alto é melhor do que
   // devolver um provedor Meta com credencial de Evolution, que mandaria
-  // a chave da Evolution para graph.facebook.com.
+  // a chave da Evolution para graph.facebook.com. E a recusa acontece
+  // ANTES do decrypt: o segredo não sai da coluna para ser descartado.
   it('throws a clear not-implemented error for an evolution row', async () => {
     const evo = {
       id: 'cfg-2',
@@ -1281,12 +1302,26 @@ describe('resolveProvider', () => {
       status: 'connected',
     };
 
-    await expect(resolveProvider(dbReturning(evo), 'acct-1')).rejects.toThrow(
-      /not implemented/i
-    );
+    await expect(
+      resolveProvider(dbReturning(evo).db, 'acct-1')
+    ).rejects.toThrow(/not implemented/i);
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+
+  // Fail-closed: um valor de provider desconhecido (base sem o CHECK da
+  // 040, terceiro provedor futuro sem transporte) NÃO pode cair no ramo
+  // Meta e mandar a credencial para graph.facebook.com.
+  it('refuses an unknown provider value instead of defaulting to meta', async () => {
+    const weird = { ...META_ROW, provider: 'evolutoin' };
+    await expect(
+      resolveProvider(dbReturning(weird).db, 'acct-1')
+    ).rejects.toThrow(/not implemented/i);
+    expect(decrypt).not.toHaveBeenCalled();
   });
 });
 ```
+
+(Para o `expect(decrypt)` funcionar, importe `decrypt` do módulo mockado no topo do teste, junto do import de `./resolve`: `import { decrypt } from '@/lib/whatsapp/encryption';`. O `clearMocks: true` do vitest.config zera as chamadas entre testes.)
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
@@ -1302,16 +1337,16 @@ Crie `src/lib/whatsapp/provider/resolve.ts`:
 // ============================================================
 // Ponto único onde `whatsapp_config` vira um provedor utilizável.
 //
-// Antes desta função, os quatro caminhos de envio faziam cada um o seu
-// SELECT + decrypt e carregavam a linha crua até a chamada de rede.
-// Isso é o que tornava "adicionar um provedor" uma mudança em cinco
-// lugares em vez de um.
+// Antes desta função, cada caminho de envio fazia o seu próprio
+// SELECT + decrypt e carregava a linha crua até a chamada de rede —
+// nove sites em sete arquivos. Isso é o que tornava "adicionar um
+// provedor" uma mudança espalhada em vez de uma.
 //
-// A linha crua continua sendo devolvida junto porque os chamadores
-// precisam de `config.id` (auto-upgrade de ciphertext CBC legado) e de
-// `config.mirror_inbound_media`. O que eles NÃO precisam mais é de
-// `phone_number_id` e `access_token` — esses agora ficam presos dentro
-// do provedor.
+// A linha crua continua sendo devolvida junto porque `send-message.ts`
+// precisa de `config.id` + `config.access_token` para o auto-upgrade de
+// ciphertext CBC legado. O que os chamadores NÃO precisam mais é de
+// `phone_number_id` e do token em claro — esses ficam presos dentro do
+// provedor.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -1378,17 +1413,25 @@ export async function resolveProvider(
   }
 
   const row = config as RawConfigRow;
-  const decryptedToken = decrypt(row.access_token);
 
   // Linhas gravadas antes da migração 040 não têm `provider`. Toda
   // linha pré-040 é Meta por construção, então o default preserva o
   // comportamento numa base ainda não migrada.
   const kind = row.provider ?? 'meta';
 
-  if (kind === 'evolution') {
+  // Decidir o provedor ANTES de descriptografar: o segredo só sai da
+  // coluna quando já se sabe para quem ele é. Mesma disciplina do
+  // `assertMetaConfig` (Task 13).
+  //
+  // Fail-closed: `!== 'meta'`, não `=== 'evolution'`. Só Meta tem
+  // transporte hoje; qualquer outro valor — 'evolution', um terceiro
+  // provedor futuro, ou lixo numa base sem o CHECK da 040 — tem que
+  // parar AQUI, e não cair no ramo Meta e mandar a credencial errada
+  // para graph.facebook.com.
+  if (kind !== 'meta') {
     throw new ProviderResolutionError(
       'provider_not_implemented',
-      'Evolution provider is not implemented yet.',
+      `Provider "${kind}" is not implemented yet.`,
       501
     );
   }
@@ -1400,6 +1443,8 @@ export async function resolveProvider(
       400
     );
   }
+
+  const decryptedToken = decrypt(row.access_token);
 
   return {
     provider: metaProvider({
@@ -1416,7 +1461,7 @@ export async function resolveProvider(
 
 Run: `npx vitest run src/lib/whatsapp/provider/resolve.test.ts`
 
-Expected: PASS, 5 testes.
+Expected: PASS, 6 testes.
 
 - [ ] **Step 5: Commit**
 
@@ -2182,7 +2227,7 @@ export function assertMetaConfig(config: RawConfigRow): {
 
 Run: `npx vitest run src/lib/whatsapp/provider/resolve.test.ts`
 
-Expected: PASS, 7 testes.
+Expected: PASS, 8 testes.
 
 - [ ] **Step 5: Aplicar nos oito sites**
 
@@ -2256,7 +2301,7 @@ Run: `npm run test`
 
 Expected: **exatamente** `Test Files 2 failed | 77 passed`, `Tests 5 failed | 824 passed (829)`. As 5 falhas têm que ser as mesmas de `currency.test.ts` e `date-utils.test.ts` do baseline. **Qualquer falha nova reprova a task** — volte ao commit da task correspondente e compare o comportamento.
 
-Se a contagem total de testes subiu de 829, é porque as Tasks 4-6 adicionaram 20 (10+5+5) e a Task 13 mais 2: o esperado passa a ser `851`, com as mesmas 5 falhas.
+Se a contagem total de testes subiu de 829, é porque as Tasks 4-6 adicionaram 21 (10+5+6) e a Task 13 mais 2: o esperado passa a ser `852`, com as mesmas 5 falhas.
 
 - [ ] **Step 2: Typecheck**
 
