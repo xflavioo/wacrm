@@ -53,6 +53,13 @@ vi.mock('@supabase/supabase-js', () => ({
                   data: [
                     {
                       account_id: 'acc-1',
+                      // A rota acha esta linha COM `.eq('phone_number_id',
+                      // …)`, então em produção o valor sempre volta
+                      // preenchido e igual ao do payload. Ele é
+                      // load-bearing desde o portão Meta-only: uma linha
+                      // sem phone_number_id não é uma linha Meta válida
+                      // (CHECK da migração 040) e o webhook a pula.
+                      phone_number_id: 'pn-1',
                       user_id: 'user-1',
                       access_token: 'enc',
                       mirror_inbound_media: h.state.mirrorInboundMedia,

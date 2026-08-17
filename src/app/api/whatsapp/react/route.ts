@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { sendReactionMessage } from '@/lib/whatsapp/meta-api';
-import { decrypt } from '@/lib/whatsapp/encryption';
+import {
+  resolveProvider,
+  ProviderResolutionError,
+} from '@/lib/whatsapp/provider/resolve';
+import type { WhatsAppProvider } from '@/lib/whatsapp/provider/types';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import {
   checkRateLimit,
@@ -14,14 +17,14 @@ import {
  *
  * Body: { message_id: <internal UUID>, emoji: <single emoji or "" to remove> }
  *
- * Sends the reaction to Meta and mirrors it into `message_reactions`
- * (delete on empty emoji). Customer-side reactions are handled by the
+ * Sends the reaction through the account's resolved provider and mirrors
+ * it into `message_reactions` (delete on empty emoji). Customer-side reactions are handled by the
  * webhook — this route only writes `actor_type = 'agent'` rows.
  */
 export async function POST(request: Request) {
   try {
     // Reacting is a write operation (`canSendMessages`), and it pushes the
-    // reaction to Meta before mirroring it locally — so, as on /send, a
+    // reaction to the provider before mirroring it locally — so, as on /send, a
     // missing role check let a read-only viewer put a visible reaction on
     // the customer's message even though RLS blocked the local mirror.
     const { supabase, accountId, userId } = await requireRole('agent');
@@ -88,27 +91,32 @@ export async function POST(request: Request) {
       );
     }
 
-    // WhatsApp config + access token. Account-scoped post-multi-user.
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, access_token')
-      .eq('account_id', accountId)
-      .single();
-
-    if (configError || !config) {
-      return NextResponse.json(
-        { error: 'WhatsApp not configured.' },
-        { status: 400 },
-      );
+    // WhatsApp provider. Account-scoped post-multi-user.
+    let provider: WhatsAppProvider;
+    try {
+      ({ provider } = await resolveProvider(supabase, accountId));
+    } catch (err) {
+      if (err instanceof ProviderResolutionError) {
+        // Keep this route's historically short message for the case it
+        // always had (no config → 400); for the newer resolver
+        // rejections let the message match the status instead of
+        // sending "not configured" with a 501.
+        return NextResponse.json(
+          {
+            error:
+              err.code === 'whatsapp_not_configured'
+                ? 'WhatsApp not configured.'
+                : err.message,
+          },
+          { status: err.status },
+        );
+      }
+      throw err;
     }
-
-    const accessToken = decrypt(config.access_token);
     const sanitizedPhone = sanitizePhoneForMeta(contact.phone);
 
     try {
-      await sendReactionMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      await provider.sendReaction({
         to: sanitizedPhone,
         targetMessageId: targetMessage.message_id,
         emoji,
@@ -116,7 +124,7 @@ export async function POST(request: Request) {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Unknown Meta API error';
-      console.error('[whatsapp/react] Meta send failed:', message);
+      console.error('[whatsapp/react] provider send failed:', message);
       return NextResponse.json(
         { error: `Meta API error: ${message}` },
         { status: 502 },

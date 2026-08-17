@@ -7,7 +7,7 @@
 //   createBroadcast()  — validate, resolve contacts, insert the
 //                        `broadcasts` row + `broadcast_recipients`
 //                        rows (status 'pending'), return a plan.
-//   deliverBroadcast() — send each recipient's template via Meta
+//   deliverBroadcast() — send each recipient's template via the account's resolved provider
 //                        (phone-variant retry), stamp each recipient
 //                        row + the aggregate counts, finalize status.
 //
@@ -18,14 +18,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { sendTemplateMessage } from '@/lib/whatsapp/meta-api';
-import { decrypt } from '@/lib/whatsapp/encryption';
+import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import {
-  sanitizePhoneForMeta,
-  isValidE164,
-  phoneVariants,
-  isRecipientNotAllowedError,
-} from '@/lib/whatsapp/phone-utils';
+  resolveProvider,
+  ProviderResolutionError,
+} from '@/lib/whatsapp/provider/resolve';
+import type { WhatsAppProvider } from '@/lib/whatsapp/provider/types';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
@@ -66,8 +64,11 @@ export interface BroadcastPlan {
   broadcastId: string;
   templateName: string;
   templateLanguage: string;
-  phoneNumberId: string;
-  accessToken: string;
+  /** Provider already bound to the account's credentials. Replaces the
+   *  old `phoneNumberId` + `accessToken`: the plan is built once and
+   *  reused across N recipients, so resolving here keeps the single
+   *  SELECT + decrypt this code has always had. */
+  provider: WhatsAppProvider;
   templateRow: MessageTemplate | null;
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
@@ -79,8 +80,9 @@ const MAX_RECIPIENTS = 1000;
 /**
  * Validate + persist a broadcast, resolving each recipient to a
  * contact. Returns a plan for {@link deliverBroadcast}. Throws
- * {@link BroadcastError} on bad input / missing config / a malformed
- * template / a DB failure — nothing is sent in this phase.
+ * {@link BroadcastError} on bad input / missing config / an unimplemented
+ * provider / a malformed template / a DB failure — nothing is sent in this
+ * phase.
  */
 export async function createBroadcast(
   db: SupabaseClient,
@@ -108,21 +110,17 @@ export async function createBroadcast(
     );
   }
 
-  // Config (fail fast + provides the audit trail owner already resolved
-  // by the caller). Meta send needs phone_number_id + decrypted token.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-  if (configError || !config) {
-    throw new BroadcastError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  // Provider (fail fast + provides the audit trail owner the caller
+  // already resolved). Resolved ONCE for the whole plan.
+  let provider: WhatsAppProvider;
+  try {
+    ({ provider } = await resolveProvider(db, accountId));
+  } catch (err) {
+    if (err instanceof ProviderResolutionError) {
+      throw new BroadcastError(err.code, err.message, err.status);
+    }
+    throw err;
   }
-  const accessToken = decrypt(config.access_token);
 
   // Template row (once) for header/button components; guard a
   // malformed local row rather than N identical opaque failures.
@@ -234,8 +232,7 @@ export async function createBroadcast(
     broadcastId,
     templateName,
     templateLanguage: resolvedTemplate.language,
-    phoneNumberId: config.phone_number_id,
-    accessToken,
+    provider,
     templateRow,
     planned,
     rejected,
@@ -260,15 +257,13 @@ export async function deliverBroadcast(
   plan: BroadcastPlan
 ): Promise<void> {
   for (const recipient of plan.planned) {
-    const variants = phoneVariants(recipient.phone);
+    const variants = plan.provider.addressVariants(recipient.phone);
     let sentMessageId: string | null = null;
     let lastError: string | null = null;
 
     for (const variant of variants) {
       try {
-        const result = await sendTemplateMessage({
-          phoneNumberId: plan.phoneNumberId,
-          accessToken: plan.accessToken,
+        const result = await plan.provider.sendTemplate({
           to: variant,
           templateName: plan.templateName,
           language: plan.templateLanguage,
@@ -282,7 +277,7 @@ export async function deliverBroadcast(
         const message = error instanceof Error ? error.message : 'Unknown error';
         lastError = message;
         // Only a "recipient not allowed" error is worth another variant.
-        if (!isRecipientNotAllowedError(message)) break;
+        if (!plan.provider.isRetryableAddressError(error)) break;
       }
     }
 

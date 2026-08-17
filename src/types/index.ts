@@ -272,15 +272,41 @@ export interface MessageReaction {
   created_at: string;
 }
 
-export interface WhatsAppConfig {
+export type WhatsAppProviderKind = 'meta' | 'evolution';
+
+/** Campos comuns aos dois provedores. */
+interface WhatsAppConfigBase {
   id: string;
   user_id: string;
+  /**
+   * Tenancy. NOT NULL desde a migração 017 — o tipo antigo omitia esta
+   * coluna, o que deixava `config.account_id` como erro de tipo em
+   * código correto.
+   */
+  account_id: string;
+  /** Credencial do provedor, cifrada com AES-256-GCM. Para `meta` é o
+   *  access token do Graph; para `evolution` é a API key. Migração 040. */
+  access_token: string;
+  status: 'connected' | 'disconnected' | 'connecting';
+  connected_at?: string;
+  created_at?: string;
+  updated_at?: string;
+  /**
+   * When true (the default), the inbound webhook copies received media
+   * into the `chat-media` bucket so attachments outlive Meta's ~30-day
+   * retention. Turning it off keeps storage flat and accepts that
+   * inbound attachments expire. A coluna é NOT NULL DEFAULT TRUE
+   * (migração 039); o `?` existe porque uma linha pode ser lida contra
+   * um banco que ainda não rodou a 039.
+   */
+  mirror_inbound_media?: boolean;
+}
+
+export interface WhatsAppConfigMeta extends WhatsAppConfigBase {
+  provider: 'meta';
   phone_number_id: string;
   waba_id?: string;
-  access_token: string;
   verify_token?: string;
-  status: 'connected' | 'disconnected';
-  connected_at?: string;
   /**
    * Set when POST /{phone_number_id}/register last succeeded. NULL
    * means the number was saved but never actually subscribed for
@@ -291,14 +317,25 @@ export interface WhatsAppConfig {
   subscribed_apps_at?: string;
   /** Last error from /register; cleared on success. */
   last_registration_error?: string;
-  /**
-   * When true (the default), the inbound webhook copies received media
-   * into the `chat-media` bucket so attachments outlive Meta's ~30-day
-   * retention. Turning it off keeps storage flat and accepts that
-   * inbound attachments expire. Migration 039.
-   */
-  mirror_inbound_media?: boolean;
 }
+
+/**
+ * As colunas Meta-only que este variant omite (waba_id, verify_token,
+ * registered_at, subscribed_apps_at, last_registration_error) não são
+ * só convenção: o CHECK da migração 040 as força a NULL quando
+ * provider = 'evolution'.
+ */
+export interface WhatsAppConfigEvolution extends WhatsAppConfigBase {
+  provider: 'evolution';
+  /** Base URL do servidor Evolution, ex. `https://evolution.example.com`. */
+  evolution_url: string;
+  /** Nome da instância no servidor Evolution. */
+  evolution_instance: string;
+  /** Sempre NULL numa linha Evolution — a coluna existe para a Meta. */
+  phone_number_id?: null;
+}
+
+export type WhatsAppConfig = WhatsAppConfigMeta | WhatsAppConfigEvolution;
 
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)
 // rather than collapsing to a local TitleCase set — distinctions like

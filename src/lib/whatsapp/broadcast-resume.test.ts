@@ -220,7 +220,12 @@ describe('planBroadcastResume', () => {
         params: ['B456', 'Monday'],
       },
     ]);
-    expect(plan.accessToken).toBe('decrypted:tok');
+    // As credenciais agora ficam presas dentro do provedor; o plano só
+    // carrega o provedor pronto. Que a linha de config vire um provedor
+    // Meta com o token DESCRIPTOGRAFADO é coberto por
+    // provider/resolve.test.ts, e o repasse do token ao envio por
+    // provider/meta.test.ts.
+    expect(plan.provider.kind).toBe('meta');
     expect(remaining).toBe(0);
     expect(unsendable).toBe(0);
   });

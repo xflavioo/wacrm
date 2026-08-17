@@ -162,7 +162,9 @@ Response (201):
 
 Domain error codes beyond the table above: `whatsapp_not_configured`
 (400), `meta_error` (502 — the request reached Meta and it rejected the
-send), `template_malformed` (500).
+send), `template_malformed` (500), `provider_not_implemented` (501 —
+the account's WhatsApp provider has no send transport yet; only the
+Meta Cloud API is implemented today).
 
 ### `GET /api/v1/contacts`
 

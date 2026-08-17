@@ -1,6 +1,10 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
+import {
+  ProviderResolutionError,
+  assertMetaConfig,
+} from '@/lib/whatsapp/provider/resolve'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
@@ -295,7 +299,29 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
 
       const config = configRows[0]
 
-      const decryptedAccessToken = decrypt(config.access_token)
+      // Este webhook é da Meta, e o token descriptografado aqui volta
+      // para graph.facebook.com no download de mídia. A resolução acima
+      // é por `phone_number_id`, que o CHECK da 040 proíbe numa linha
+      // Evolution — então uma linha de outro provedor não chega aqui.
+      // O portão é defesa em profundidade contra um `phone_number_id`
+      // residual; o `continue` deixa o resto do batch seguir em vez de
+      // derrubar o processamento inteiro.
+      let decryptedAccessToken: string
+      try {
+        ({ accessToken: decryptedAccessToken } = assertMetaConfig(config))
+      } catch (err) {
+        // Nomeia as duas causas separadamente: `provider_mismatch` é
+        // uma linha de outro provedor, `decrypt_failed` é a
+        // ENCRYPTION_KEY errada. Um operador grepando os logs precisa
+        // distinguir "config de outro provedor" de "chave trocada" —
+        // as remediações não têm nada em comum.
+        console.error(
+          '[webhook] skipping change:',
+          err instanceof ProviderResolutionError ? err.code : 'decrypt_failed',
+          err instanceof Error ? err.message : err
+        )
+        continue
+      }
 
       for (let i = 0; i < value.messages.length; i++) {
         const message = value.messages[i]

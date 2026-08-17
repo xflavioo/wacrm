@@ -6,7 +6,12 @@ import {
   subscribeWabaToApp,
   verifyPhoneNumber,
 } from '@/lib/whatsapp/meta-api'
-import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { encrypt } from '@/lib/whatsapp/encryption'
+import {
+  ProviderResolutionError,
+  assertMetaConfig,
+} from '@/lib/whatsapp/provider/resolve'
+import type { MetaCredentials } from '@/lib/whatsapp/provider/meta'
 
 /**
  * Resolve the caller's account_id from their profile. Inlined here
@@ -59,6 +64,11 @@ function supabaseAdmin() {
  *   { connected: false, reason: 'no_config',        message: '...' }
  *   { connected: false, reason: 'token_corrupted',  message: '...', needs_reset: true }
  *   { connected: false, reason: 'meta_api_error',   message: '...' }
+ *
+ * Plus, from the Meta-only gate below, `reason` carries the
+ * ProviderResolutionError code verbatim:
+ *   { connected: false, reason: 'provider_mismatch',       message: '...' }
+ *   { connected: false, reason: 'whatsapp_not_configured', message: '...' }
  */
 export async function GET() {
   try {
@@ -85,9 +95,16 @@ export async function GET() {
       )
     }
 
+    // Linha inteira (não a lista de três colunas de antes) porque o
+    // portão Meta-only abaixo precisa ler `provider`. Uma lista
+    // explícita nomeando `provider` quebraria numa base onde a
+    // migração 040 ainda não rodou; `*` traz a coluna quando ela
+    // existe e simplesmente não a traz quando não existe — e aí
+    // `assertMetaConfig` cai no default 'meta', que é a verdade numa
+    // base pré-040. Mesmo `select('*')` das outras rotas Meta-only.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
+      .select('*')
       .eq('account_id', accountId)
       .maybeSingle()
 
@@ -110,12 +127,29 @@ export async function GET() {
       )
     }
 
-    // Try to decrypt the stored token with the current ENCRYPTION_KEY.
-    // If this fails, the key changed (or was never consistent across envs).
-    let accessToken: string
+    // Guarda de provedor ANTES do decrypt: uma linha não-Meta não é
+    // "token corrompido" — é outro provedor, e este health check é
+    // Meta-only (fala com graph.facebook.com). Se o portão morasse
+    // DENTRO do try abaixo, uma conta Evolution seria diagnosticada
+    // como "sua ENCRYPTION_KEY mudou, clique em Reset Configuration" —
+    // o oposto da verdade, e um convite para apagar uma config sã.
+    let metaCreds: MetaCredentials
     try {
-      accessToken = decrypt(config.access_token)
+      metaCreds = assertMetaConfig(config)
     } catch (err) {
+      if (err instanceof ProviderResolutionError) {
+        // `reason` repassa o código do erro em vez de assumir
+        // 'provider_mismatch': o portão também recusa uma linha Meta
+        // sem phone_number_id ('whatsapp_not_configured'), e rotular
+        // isso como "provedor errado" mandaria o usuário trocar de
+        // provedor para consertar um campo faltando.
+        return NextResponse.json(
+          { connected: false, reason: err.code, message: err.message },
+          { status: 200 }
+        )
+      }
+      // Qualquer outro erro aqui é o decrypt falhando — cai no
+      // diagnóstico de token corrompido, exatamente como antes.
       console.error('[whatsapp/config GET] Token decryption failed:', err)
       return NextResponse.json(
         {
@@ -128,6 +162,7 @@ export async function GET() {
         { status: 200 }
       )
     }
+    const accessToken = metaCreds.accessToken
 
     // Validate credentials against Meta
     try {
