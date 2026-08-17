@@ -32,7 +32,7 @@ As 5 falhas são **pré-existentes e não relacionadas** — dependem do locale/
 | D3 | A credencial da Evolution vai na coluna `access_token` existente, cifrada pelo mesmo `encrypt()`. A coluna `provider` desambigua o conteúdo. |
 | D9 | `status` ganha o valor `connecting`. O QR **nunca** é persistido. |
 
-**Estilo:** o repo mistura ponto-e-vírgula (`send-message.ts`) e sem (`flows/meta-send.ts`). Rode `npm run format` antes de cada commit e não se preocupe com isso.
+**Estilo:** o repo mistura ponto-e-vírgula (`send-message.ts`) e sem (`flows/meta-send.ts`). Formate **só os arquivos da task** com `npx prettier --write <arquivos>`. **NUNCA rode `npm run format`** — ele varre o repo inteiro e, como há drift pré-existente de estilo, reescreve ~360 arquivos não relacionados (descoberto na Task 2). Uma limpeza dedicada de formatação fica fora deste plano.
 
 **Os seis sites que serão migrados:**
 
@@ -154,7 +154,10 @@ Crie `supabase/migrations/040_evolution_provider.sql`:
 --      roteável pelo webhook da Meta e continuaria reivindicando o
 --      número no UNIQUE da migração 013. O CHECK torna o híbrido
 --      irrepresentável; a troca de provedor é obrigada a limpar a
---      identidade do provedor anterior na mesma escrita.
+--      identidade do provedor anterior na mesma escrita. Vale para
+--      TODAS as colunas Meta-only — inclusive `verify_token`, que é um
+--      segredo, e os carimbos de registro da migração 015 — não só
+--      para as três que dão nome às branches.
 --
 -- O QR Code NÃO ganha coluna. Ele é credencial de pareamento de
 -- dispositivo e expira em ~20s; será servido por rota autenticada e
@@ -215,7 +218,12 @@ BEGIN
         OR
         (provider = 'evolution' AND evolution_url IS NOT NULL
                                 AND evolution_instance IS NOT NULL
-                                AND phone_number_id IS NULL)
+                                AND phone_number_id IS NULL
+                                AND waba_id IS NULL
+                                AND verify_token IS NULL
+                                AND registered_at IS NULL
+                                AND subscribed_apps_at IS NULL
+                                AND last_registration_error IS NULL)
       );
   END IF;
 END $$;
@@ -331,11 +339,15 @@ interface WhatsAppConfigBase {
   access_token: string;
   status: 'connected' | 'disconnected' | 'connecting';
   connected_at?: string;
+  created_at?: string;
+  updated_at?: string;
   /**
    * When true (the default), the inbound webhook copies received media
    * into the `chat-media` bucket so attachments outlive Meta's ~30-day
    * retention. Turning it off keeps storage flat and accepts that
-   * inbound attachments expire. Migração 039.
+   * inbound attachments expire. A coluna é NOT NULL DEFAULT TRUE
+   * (migração 039); o `?` existe porque uma linha pode ser lida contra
+   * um banco que ainda não rodou a 039.
    */
   mirror_inbound_media?: boolean;
 }
@@ -357,6 +369,12 @@ export interface WhatsAppConfigMeta extends WhatsAppConfigBase {
   last_registration_error?: string;
 }
 
+/**
+ * As colunas Meta-only que este variant omite (waba_id, verify_token,
+ * registered_at, subscribed_apps_at, last_registration_error) não são
+ * só convenção: o CHECK da migração 040 as força a NULL quando
+ * provider = 'evolution'.
+ */
 export interface WhatsAppConfigEvolution extends WhatsAppConfigBase {
   provider: 'evolution';
   /** Base URL do servidor Evolution, ex. `https://evolution.example.com`. */
@@ -385,6 +403,16 @@ const [config, setConfig] = useState<WhatsAppConfigMeta | null>(null);
 ```
 
 É honesto, não gambiarra: este componente É o painel Meta hoje; o seletor de provedor do plano 3 o reconstrói de qualquer forma.
+
+E, como o client do browser não tem generics do Supabase (`select('*')` devolve `any`), a anotação sozinha é documentação, não enforcement. Torne-a verdadeira com um guard de duas linhas no `fetchConfig`, logo antes do `setConfig(data)`:
+
+```ts
+      // Linha de outro provedor: este painel é Meta-only até o plano 3.
+      if (data && (data.provider ?? 'meta') !== 'meta') {
+        setConfig(null);
+        return;
+      }
+```
 
 Se aparecer erro em **qualquer outro arquivo**, pare e reporte: é um consumidor que este plano não mapeou.
 
@@ -430,9 +458,15 @@ import type {
   InteractiveListSection,
   MediaKind,
 } from '@/lib/whatsapp/meta-api';
-import type { MessageTemplate } from '@/types';
+import type { MessageTemplate, WhatsAppProviderKind } from '@/types';
 
-export type ProviderKind = 'meta' | 'evolution';
+/**
+ * Alias, não redeclaração: o discriminador tem UMA fonte de verdade
+ * (`WhatsAppProviderKind` em `@/types`, ao lado da união de config).
+ * Redeclarar o literal aqui criaria dois vocabulários idênticos que
+ * divergem no primeiro provedor novo.
+ */
+export type ProviderKind = WhatsAppProviderKind;
 
 export interface ProviderSendResult {
   /** O id do provedor: `wamid...` na Meta, `key.id` na Evolution. */
@@ -836,7 +870,7 @@ Se as assinaturas reais de `sendTemplateMessage` / `sendReactionMessage` em `src
 - [ ] **Step 5: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/lib/whatsapp/provider/meta.ts src/lib/whatsapp/provider/meta.test.ts
 git commit -m "feat(provider): add the Meta implementation"
 ```
@@ -1015,7 +1049,7 @@ Expected: PASS, 5 testes.
 - [ ] **Step 5: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/lib/whatsapp/provider/retry.ts src/lib/whatsapp/provider/retry.test.ts
 git commit -m "feat(provider): extract the address-variant retry loop"
 ```
@@ -1162,7 +1196,14 @@ export class ProviderResolutionError extends Error {
   }
 }
 
-/** A linha crua de `whatsapp_config`, como o Supabase devolve. */
+/**
+ * A linha crua de `whatsapp_config`, como o Supabase devolve — o shape
+ * PRÉ-validação, com tudo opcional porque nada foi conferido ainda.
+ * Depois que `resolveProvider`/`assertMetaConfig` validam, a mesma
+ * linha satisfaz `WhatsAppConfigMeta`/`WhatsAppConfigEvolution` de
+ * `@/types`. Os dois tipos descrevem a MESMA tabela em momentos
+ * diferentes; a união é a canônica, este é o formato de fio.
+ */
 export interface RawConfigRow {
   id: string;
   account_id: string;
@@ -1245,7 +1286,7 @@ Expected: PASS, 5 testes.
 - [ ] **Step 5: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/lib/whatsapp/provider/resolve.ts src/lib/whatsapp/provider/resolve.test.ts
 git commit -m "feat(provider): add resolveProvider"
 ```
@@ -1403,7 +1444,7 @@ Expected: PASS, o mesmo número de testes do Step 1.
 - [ ] **Step 5: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/lib/whatsapp/send-message.ts
 git commit -m "refactor(send): route sendMessageToConversation through the provider seam"
 ```
@@ -1540,7 +1581,7 @@ Expected: PASS, a mesma contagem do Step 1.
 - [ ] **Step 7: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/lib/flows/meta-send.ts
 git commit -m "refactor(flows): route engine sends through the provider seam"
 ```
@@ -1640,7 +1681,7 @@ Expected: PASS, a mesma contagem do Step 1.
 - [ ] **Step 5: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/lib/automations/meta-send.ts
 git commit -m "refactor(automations): route engine sends through the provider seam"
 ```
@@ -1754,7 +1795,7 @@ Expected: PASS, a mesma contagem do Step 1.
 - [ ] **Step 7: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/lib/whatsapp/broadcast-core.ts src/lib/whatsapp/broadcast-resume.ts
 git commit -m "refactor(broadcast): route delivery through the provider seam"
 ```
@@ -1836,7 +1877,7 @@ Expected: PASS, a mesma contagem do Step 1.
 - [ ] **Step 6: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/app/api/whatsapp/broadcast/route.ts
 git commit -m "refactor(broadcast-route): route inline sends through the provider seam"
 ```
@@ -1901,7 +1942,7 @@ Expected: PASS, a mesma contagem do Task 11.
 - [ ] **Step 4: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add src/app/api/whatsapp/react/route.ts
 git commit -m "refactor(react): route reaction sends through the provider seam"
 ```
@@ -2061,7 +2102,7 @@ Expected: **nenhuma saída.** Único lugar que descriptografa `access_token` pas
 - [ ] **Step 7: Commit**
 
 ```bash
-npm run format
+npx prettier --write <arquivos desta task>   # NUNCA 'npm run format' (repo inteiro)
 git add -A
 git commit -m "fix(provider): refuse Meta-only routes on a non-Meta config"
 ```
