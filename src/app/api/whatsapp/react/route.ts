@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { sendReactionMessage } from '@/lib/whatsapp/meta-api';
-import { decrypt } from '@/lib/whatsapp/encryption';
+import {
+  resolveProvider,
+  ProviderResolutionError,
+} from '@/lib/whatsapp/provider/resolve';
+import type { WhatsAppProvider } from '@/lib/whatsapp/provider/types';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import {
   checkRateLimit,
@@ -88,27 +91,23 @@ export async function POST(request: Request) {
       );
     }
 
-    // WhatsApp config + access token. Account-scoped post-multi-user.
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, access_token')
-      .eq('account_id', accountId)
-      .single();
-
-    if (configError || !config) {
-      return NextResponse.json(
-        { error: 'WhatsApp not configured.' },
-        { status: 400 },
-      );
+    // WhatsApp provider. Account-scoped post-multi-user.
+    let provider: WhatsAppProvider;
+    try {
+      ({ provider } = await resolveProvider(supabase, accountId));
+    } catch (err) {
+      if (err instanceof ProviderResolutionError) {
+        return NextResponse.json(
+          { error: 'WhatsApp not configured.' },
+          { status: err.status },
+        );
+      }
+      throw err;
     }
-
-    const accessToken = decrypt(config.access_token);
     const sanitizedPhone = sanitizePhoneForMeta(contact.phone);
 
     try {
-      await sendReactionMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      await provider.sendReaction({
         to: sanitizedPhone,
         targetMessageId: targetMessage.message_id,
         emoji,
