@@ -7,7 +7,7 @@
 //   createBroadcast()  — validate, resolve contacts, insert the
 //                        `broadcasts` row + `broadcast_recipients`
 //                        rows (status 'pending'), return a plan.
-//   deliverBroadcast() — send each recipient's template via Meta
+//   deliverBroadcast() — send each recipient's template via the account's resolved provider
 //                        (phone-variant retry), stamp each recipient
 //                        row + the aggregate counts, finalize status.
 //
@@ -64,10 +64,10 @@ export interface BroadcastPlan {
   broadcastId: string;
   templateName: string;
   templateLanguage: string;
-  /** Provedor já vinculado às credenciais da conta. Substitui os
-   *  antigos `phoneNumberId` + `accessToken`: o plano é construído uma
-   *  vez e reusado em N destinatários, então resolver aqui mantém o
-   *  único SELECT + decrypt que o código sempre teve. */
+  /** Provider already bound to the account's credentials. Replaces the
+   *  old `phoneNumberId` + `accessToken`: the plan is built once and
+   *  reused across N recipients, so resolving here keeps the single
+   *  SELECT + decrypt this code has always had. */
   provider: WhatsAppProvider;
   templateRow: MessageTemplate | null;
   planned: PlannedRecipient[];
@@ -80,8 +80,9 @@ const MAX_RECIPIENTS = 1000;
 /**
  * Validate + persist a broadcast, resolving each recipient to a
  * contact. Returns a plan for {@link deliverBroadcast}. Throws
- * {@link BroadcastError} on bad input / missing config / a malformed
- * template / a DB failure — nothing is sent in this phase.
+ * {@link BroadcastError} on bad input / missing config / an unimplemented
+ * provider / a malformed template / a DB failure — nothing is sent in this
+ * phase.
  */
 export async function createBroadcast(
   db: SupabaseClient,
@@ -109,8 +110,8 @@ export async function createBroadcast(
     );
   }
 
-  // Provedor (fail fast + provides the audit trail owner already
-  // resolved by the caller). Resolvido UMA vez para o plano inteiro.
+  // Provider (fail fast + provides the audit trail owner the caller
+  // already resolved). Resolved ONCE for the whole plan.
   let provider: WhatsAppProvider;
   try {
     ({ provider } = await resolveProvider(db, accountId));

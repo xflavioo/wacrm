@@ -93,18 +93,24 @@ describe('metaProvider', () => {
     );
   });
 
-  // Recebe o erro cru: Error, string, ou qualquer coisa que um fetch
-  // rejeitado possa lançar. Só o texto do 131030 é retryable.
+  // Recebe o erro cru. Só um Error cujo texto casa o 131030 é retryable;
+  // um não-Error NUNCA é — mesmo comportamento dos loops originais de
+  // broadcast, cujo fallback 'Unknown error' nunca casava. E o predicado
+  // é TOTAL: roda dentro do catch dos loops de broadcast, fora de
+  // qualquer try, então não pode lançar nem para um objeto sem
+  // conversão primitiva.
   it('treats Meta error 131030 as a retryable address error', () => {
     const p = metaProvider(CREDS);
     expect(
       p.isRetryableAddressError(new Error('(#131030) not in allowed list'))
     ).toBe(true);
-    expect(p.isRetryableAddressError('recipient not in the allowed list')).toBe(
-      true
-    );
     expect(p.isRetryableAddressError(new Error('rate limit hit'))).toBe(false);
+    // Não-Error: nunca retryable, e nunca lança.
+    expect(p.isRetryableAddressError('recipient not in the allowed list')).toBe(
+      false
+    );
     expect(p.isRetryableAddressError(undefined)).toBe(false);
+    expect(p.isRetryableAddressError(Object.create(null))).toBe(false);
   });
 
   // Os três forwards mais pesados. Um typo de campo o TS pega (excess

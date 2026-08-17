@@ -48,10 +48,12 @@ export function metaProvider(creds: MetaCredentials): WhatsAppProvider {
     addressVariants: (phone: string) => phoneVariants(phone),
     // Stringifica aqui — a mesma linha que os chamadores tinham
     // antes do check. É política da Meta procurar o 131030 no texto.
+    // TOTAL por construção: este predicado roda dentro do `catch` dos
+    // loops de broadcast, fora de qualquer try — se ele próprio
+    // lançasse (String() num objeto sem conversão primitiva), a exceção
+    // abortaria o broadcast inteiro. Um não-Error nunca é retryable.
     isRetryableAddressError: (error: unknown) =>
-      isRecipientNotAllowedError(
-        error instanceof Error ? error.message : String(error)
-      ),
+      error instanceof Error && isRecipientNotAllowedError(error.message),
 
     async sendText(args: ProviderSendTextArgs): Promise<ProviderSendResult> {
       return sendTextMessage({

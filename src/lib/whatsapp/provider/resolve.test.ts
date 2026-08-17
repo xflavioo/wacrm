@@ -50,10 +50,18 @@ const META_ROW = {
 describe('resolveProvider', () => {
   it('builds a Meta provider from a meta row and decrypts the token', async () => {
     const { db, seen } = dbReturning(META_ROW);
-    const { provider, config } = await resolveProvider(db, 'acct-1');
+    const { provider, config, decryptedToken } = await resolveProvider(
+      db,
+      'acct-1'
+    );
 
     expect(provider.kind).toBe('meta');
     expect(config.id).toBe('cfg-1');
+    // O token que chega ao provedor é o DESCRIPTOGRAFADO. Sem esta
+    // asserção, passar o ciphertext ao metaProvider (e daí para
+    // graph.facebook.com) deixaria a suíte inteira verde.
+    expect(decryptedToken).toBe('decrypted:cipher');
+    expect(decrypt).toHaveBeenCalledWith('cipher');
     // Tenancy: a ÚNICA coisa que este módulo não pode errar. Sem esta
     // asserção, remover o filtro de account_id deixaria a suíte verde.
     expect(seen.table).toBe('whatsapp_config');
