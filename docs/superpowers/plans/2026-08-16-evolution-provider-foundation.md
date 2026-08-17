@@ -1698,7 +1698,13 @@ Nas linhas 85-126 de `engineSendText`, substitua tudo do `const { data: config, 
   }
 ```
 
-`resolveProvider` lança `ProviderResolutionError` com a mensagem `WhatsApp not configured...`, enquanto o código antigo lançava `Error('WhatsApp not configured for this account')`. O motor de flows só loga a mensagem, então a diferença é cosmética — **mas** se algum teste em `src/lib/flows/` casar essa string exata, atualize o teste, não a implementação.
+`resolveProvider` lança `ProviderResolutionError` com a mensagem `WhatsApp not configured. Please set up your WhatsApp integration first.`, enquanto o código antigo lançava `Error('WhatsApp not configured for this account')`. **Isto é uma mudança de string visível ao usuário, não só cosmética** — registre no PR. O alcance real, mapeado na review:
+
+- Flows text/media/collect_input: o motor captura e grava `err.message` em `flow_run_events.payload.detail`. Persistido, mas a UI de runs não renderiza `detail`. Não visível.
+- Flows `send_buttons`/`send_list`: erro não capturado, sobe ao catch de topo → `console.error`. Não visível.
+- **Automations `send_buttons`/`send_list`** — `automations/meta-send.ts` delega para os senders interativos DESTE arquivo, e o motor de automações grava `err.message` em `automation_logs.error_message`, que a página `automations/[id]/logs` **renderiza verbatim**. Visível.
+
+Nenhum teste casa a string e nada ramifica nela; a nova é melhor UX. Manter. Se algum teste em `src/lib/flows/` ou `src/lib/automations/` casar a string antiga, atualize o teste, não a implementação. (Até a Task 9, um mesmo run de automação pode logar as duas strings — text/template pela antiga, botões/listas pela nova. Se resolve sozinho na Task 9.)
 
 - [ ] **Step 4: Reescrever `engineSendMedia`**
 

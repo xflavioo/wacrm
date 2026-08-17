@@ -21,9 +21,10 @@ import { supabaseAdmin } from './admin-client'
 // persistence — the `messages` insert with `sender_type='bot'` and
 // the `conversations` preview update.
 //
-// PR #1 ships this in isolation: callers don't exist yet. PR #2
-// brings the flow runner online and wires it up. Shipping it now
-// keeps the foundation PR self-contained and unit-testable.
+// Callers: the flow runner (src/lib/flows/engine.ts), the AI
+// auto-reply (src/lib/ai/auto-reply.ts), and the automations engine,
+// which delegates its interactive sends here
+// (src/lib/automations/meta-send.ts).
 // ------------------------------------------------------------
 
 interface SendTextEngineArgs {
