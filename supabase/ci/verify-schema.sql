@@ -42,6 +42,33 @@ BEGIN
     RAISE EXCEPTION 'public.accounts is missing — migration 017 did not apply';
   END IF;
 
+  -- 040: a coluna de provedor precisa existir E aceitar 'evolution'.
+  -- Testar só a existência da coluna deixaria passar um CHECK escrito
+  -- errado, que é o modo de falha que interessa aqui.
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'whatsapp_config'
+      AND column_name = 'provider'
+  ) THEN
+    RAISE EXCEPTION 'whatsapp_config.provider is missing — migration 040 did not apply';
+  END IF;
+
+  BEGIN
+    INSERT INTO whatsapp_config (user_id, account_id, provider, access_token,
+                                 evolution_url, evolution_instance, status)
+    VALUES (gen_random_uuid(), gen_random_uuid(), 'evolution', 'x',
+            'https://example.invalid', 'ci-probe', 'connecting');
+    RAISE EXCEPTION 'CI probe row was accepted but should have been rolled back';
+  EXCEPTION
+    WHEN foreign_key_violation THEN
+      -- Esperado: os UUIDs aleatórios não existem em auth.users/accounts.
+      -- Chegar até a violação de FK prova que provider='evolution',
+      -- status='connecting' e phone_number_id NULL passaram por todos
+      -- os CHECKs — que é exatamente o que a 040 tinha que liberar.
+      NULL;
+  END;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;
