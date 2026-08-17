@@ -1706,6 +1706,11 @@ Nas linhas 85-126 de `engineSendText`, substitua tudo do `const { data: config, 
 
 Nenhum teste casa a string e nada ramifica nela; a nova é melhor UX. Manter. Se algum teste em `src/lib/flows/` ou `src/lib/automations/` casar a string antiga, atualize o teste, não a implementação. (Até a Task 9, um mesmo run de automação pode logar as duas strings — text/template pela antiga, botões/listas pela nova. Se resolve sozinho na Task 9.)
 
+**Para a nota do PR — as TRÊS strings novas de `resolveProvider` que podem chegar a `automation_logs.error_message` (renderizado verbatim na página de logs):**
+1. `WhatsApp not configured. Please set up your WhatsApp integration first.` — substitui `WhatsApp not configured for this account`.
+2. `Provider "<kind>" is not implemented yet.` (501) — nova; inalcançável hoje (CHECK da 040).
+3. `WhatsApp config is missing phone_number_id.` (400) — nova; substitui o que antes seria um `Meta API error: 400` de um POST a `.../null/messages`. Melhoria estrita; inalcançável com o CHECK da 040.
+
 - [ ] **Step 4: Reescrever `engineSendMedia`**
 
 Nas linhas 195-239, aplique a mesma substituição:
