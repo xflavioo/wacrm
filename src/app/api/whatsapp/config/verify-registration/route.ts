@@ -4,6 +4,7 @@ import {
   ProviderResolutionError,
   assertMetaConfig,
 } from '@/lib/whatsapp/provider/resolve'
+import type { MetaCredentials } from '@/lib/whatsapp/provider/meta'
 import {
   getSubscribedApps,
   verifyPhoneNumber,
@@ -77,7 +78,7 @@ export async function GET() {
   // que diagnosticar aqui. Se o portão morasse dentro do catch de
   // token corrompido, uma conta Evolution sairia como "token
   // indecifrável" e o usuário reinseriria um token que está íntegro.
-  let metaCreds: { phoneNumberId: string; accessToken: string }
+  let metaCreds: MetaCredentials
   try {
     metaCreds = assertMetaConfig(config)
   } catch (err) {

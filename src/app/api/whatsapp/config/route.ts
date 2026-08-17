@@ -11,6 +11,7 @@ import {
   ProviderResolutionError,
   assertMetaConfig,
 } from '@/lib/whatsapp/provider/resolve'
+import type { MetaCredentials } from '@/lib/whatsapp/provider/meta'
 
 /**
  * Resolve the caller's account_id from their profile. Inlined here
@@ -132,7 +133,7 @@ export async function GET() {
     // DENTRO do try abaixo, uma conta Evolution seria diagnosticada
     // como "sua ENCRYPTION_KEY mudou, clique em Reset Configuration" —
     // o oposto da verdade, e um convite para apagar uma config sã.
-    let metaCreds: { phoneNumberId: string; accessToken: string }
+    let metaCreds: MetaCredentials
     try {
       metaCreds = assertMetaConfig(config)
     } catch (err) {

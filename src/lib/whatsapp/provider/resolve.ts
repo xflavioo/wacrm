@@ -16,7 +16,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { decrypt } from '@/lib/whatsapp/encryption';
-import { metaProvider } from './meta';
+import { metaProvider, type MetaCredentials } from './meta';
 import type { WhatsAppProvider } from './types';
 
 export class ProviderResolutionError extends Error {
@@ -134,10 +134,7 @@ export async function resolveProvider(
  * é um bug de UI (o botão não devia estar visível), e um erro claro é
  * melhor do que uma requisição autenticada com o segredo errado.
  */
-export function assertMetaConfig(config: RawConfigRow): {
-  phoneNumberId: string;
-  accessToken: string;
-} {
+export function assertMetaConfig(config: RawConfigRow): MetaCredentials {
   const kind = config.provider ?? 'meta';
   if (kind !== 'meta') {
     throw new ProviderResolutionError(

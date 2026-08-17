@@ -97,8 +97,17 @@ export async function POST(request: Request) {
       ({ provider } = await resolveProvider(supabase, accountId));
     } catch (err) {
       if (err instanceof ProviderResolutionError) {
+        // Keep this route's historically short message for the case it
+        // always had (no config → 400); for the newer resolver
+        // rejections let the message match the status instead of
+        // sending "not configured" with a 501.
         return NextResponse.json(
-          { error: 'WhatsApp not configured.' },
+          {
+            error:
+              err.code === 'whatsapp_not_configured'
+                ? 'WhatsApp not configured.'
+                : err.message,
+          },
           { status: err.status },
         );
       }
