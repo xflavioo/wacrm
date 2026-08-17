@@ -21,6 +21,7 @@ import type {
   InteractiveListSection,
   MediaKind,
 } from '@/lib/whatsapp/meta-api';
+import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder';
 import type { MessageTemplate, WhatsAppProviderKind } from '@/types';
 
 /**
@@ -62,7 +63,13 @@ export interface ProviderSendTemplateArgs {
   templateName: string;
   language?: string;
   template?: MessageTemplate;
-  messageParams?: unknown;
+  /**
+   * Tipado como `SendTimeParams` (não `unknown`): é o que
+   * `sendTemplateMessage` aceita, e um `unknown` aqui obrigaria o
+   * adaptador Meta a um cast — além de jogar fora a checagem que a
+   * rota de broadcast já tem hoje.
+   */
+  messageParams?: SendTimeParams;
   params?: string[];
   contextMessageId?: string;
 }
@@ -108,8 +115,17 @@ export interface WhatsAppProvider {
    */
   addressVariants(phone: string): string[];
 
-  /** True quando o erro significa "tente o próximo endereço". */
-  isRetryableAddressError(message: string): boolean;
+  /**
+   * True quando o erro significa "tente o próximo endereço".
+   *
+   * Recebe o erro CRU (`unknown`), não a mensagem: hoje `meta-api.ts`
+   * lança `new Error(prose)` e o predicado da Meta procura o código
+   * 131030 no texto — mas um provedor que exponha status HTTP ou corpo
+   * JSON estruturado precisa poder decidir por eles, sem ser obrigado
+   * a traduzir seus erros para inglês-da-Meta. Cada provedor stringifica
+   * do jeito que precisar.
+   */
+  isRetryableAddressError(error: unknown): boolean;
 
   sendText(args: ProviderSendTextArgs): Promise<ProviderSendResult>;
   sendMedia(args: ProviderSendMediaArgs): Promise<ProviderSendResult>;
@@ -135,5 +151,10 @@ export interface WhatsAppProvider {
   sendInteractiveList(
     args: ProviderSendInteractiveListArgs
   ): Promise<ProviderSendResult>;
-  sendReaction(args: ProviderSendReactionArgs): Promise<void>;
+  /**
+   * Devolve `ProviderSendResult` como os demais: `sendReactionMessage`
+   * já retorna o wamid da reação, e descartá-lo aqui só criaria uma
+   * exceção de forma na interface. O chamador atual ignora o valor.
+   */
+  sendReaction(args: ProviderSendReactionArgs): Promise<ProviderSendResult>;
 }
