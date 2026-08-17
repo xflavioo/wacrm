@@ -109,9 +109,11 @@ export interface WhatsAppProvider {
   readonly kind: ProviderKind;
 
   /**
-   * Endereços a tentar, em ordem, para um telefone E.164. A Meta
-   * devolve variantes de trunk-0 (sandbox); provedores sem essa quirk
-   * devolvem um único elemento.
+   * Endereços a tentar, em ordem, para um telefone JÁ SANITIZADO
+   * (só dígitos, sem `+` — o que `sanitizePhoneForMeta` devolve). A
+   * Meta devolve variantes de trunk-0 (sandbox); provedores sem essa
+   * quirk devolvem um único elemento. Passar um E.164 com `+` produz
+   * variantes inúteis: os chamadores sanitizam antes.
    */
   addressVariants(phone: string): string[];
 

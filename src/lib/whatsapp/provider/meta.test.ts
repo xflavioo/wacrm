@@ -107,6 +107,83 @@ describe('metaProvider', () => {
     expect(p.isRetryableAddressError(undefined)).toBe(false);
   });
 
+  // Os três forwards mais pesados. Um typo de campo o TS pega (excess
+  // property check); um CROSS-WIRE de campos do mesmo tipo — header no
+  // footer, templateName no language — compila em silêncio. Estes
+  // testes existem para esse caso, e sendTemplate é o caminho de
+  // broadcast, o de maior volume do app.
+  it('forwards every template field, including messageParams', async () => {
+    const template = { id: 't-1', name: 'promo' } as never;
+    const messageParams = { body: ['Ana'] } as never;
+    await metaProvider(CREDS).sendTemplate({
+      to: '37063949836',
+      templateName: 'promo',
+      language: 'pt_BR',
+      template,
+      messageParams,
+      params: ['Ana'],
+      contextMessageId: 'wamid.PARENT',
+    });
+
+    expect(metaApi.sendTemplateMessage).toHaveBeenCalledWith({
+      phoneNumberId: 'pn-1',
+      accessToken: 'tok-1',
+      to: '37063949836',
+      templateName: 'promo',
+      language: 'pt_BR',
+      template,
+      messageParams,
+      params: ['Ana'],
+      contextMessageId: 'wamid.PARENT',
+    });
+  });
+
+  it('forwards interactive-button fields without cross-wiring header/footer', async () => {
+    const buttons = [{ id: 'b1', title: 'Sim' }];
+    await metaProvider(CREDS).sendInteractiveButtons({
+      to: '37063949836',
+      bodyText: 'Confirma?',
+      buttons,
+      headerText: 'HEADER',
+      footerText: 'FOOTER',
+    });
+
+    expect(metaApi.sendInteractiveButtons).toHaveBeenCalledWith({
+      phoneNumberId: 'pn-1',
+      accessToken: 'tok-1',
+      to: '37063949836',
+      bodyText: 'Confirma?',
+      buttons,
+      headerText: 'HEADER',
+      footerText: 'FOOTER',
+      contextMessageId: undefined,
+    });
+  });
+
+  it('forwards interactive-list fields without cross-wiring header/footer', async () => {
+    const sections = [{ title: 'S', rows: [{ id: 'r1', title: 'Um' }] }];
+    await metaProvider(CREDS).sendInteractiveList({
+      to: '37063949836',
+      bodyText: 'Escolha',
+      buttonLabel: 'Ver',
+      sections,
+      headerText: 'HEADER',
+      footerText: 'FOOTER',
+    });
+
+    expect(metaApi.sendInteractiveList).toHaveBeenCalledWith({
+      phoneNumberId: 'pn-1',
+      accessToken: 'tok-1',
+      to: '37063949836',
+      bodyText: 'Escolha',
+      buttonLabel: 'Ver',
+      sections,
+      headerText: 'HEADER',
+      footerText: 'FOOTER',
+      contextMessageId: undefined,
+    });
+  });
+
   it('returns the reaction wamid instead of discarding it', async () => {
     const result = await metaProvider(CREDS).sendReaction({
       to: '37063949836',
