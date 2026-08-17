@@ -1988,9 +1988,27 @@ O `break` fica. A estrutura do loop fica. Só a origem da política muda.
 
 - [ ] **Step 5: Atualizar `broadcast-resume.ts`**
 
-Run: `grep -n "phoneNumberId\|accessToken\|BroadcastPlan" src/lib/whatsapp/broadcast-resume.ts`
+Ele monta o **próprio** `BroadcastPlan` em `planBroadcastResume` (não reusa `planBroadcast`), então a mudança é obrigatória. Dois pontos:
 
-Ele também monta um `BroadcastPlan`. Aplique a mesma troca: os dois campos de credencial viram `provider`, resolvido por `resolveProvider(db, accountId)` no mesmo ponto onde a config era carregada. Se o `grep` não retornar nada, o arquivo reusa `planBroadcast` e não precisa de mudança.
+Substitua o carregamento de config (linhas ~208-219, do `const { data: config, error: configError }` até o fechamento do `if (configError || !config) { throw ... }`) por:
+
+```ts
+  let provider: WhatsAppProvider;
+  try {
+    ({ provider } = await resolveProvider(db, accountId));
+  } catch (err) {
+    if (err instanceof ProviderResolutionError) {
+      throw new BroadcastError(err.code, err.message, err.status);
+    }
+    throw err;
+  }
+```
+
+E na construção do plano (linhas ~235-241), troque `phoneNumberId: config.phone_number_id,` e `accessToken: decrypt(config.access_token),` por `provider,`.
+
+Imports: remova `import { decrypt } from '@/lib/whatsapp/encryption';`; acrescente `import { resolveProvider, ProviderResolutionError } from '@/lib/whatsapp/provider/resolve';` e `import type { WhatsAppProvider } from '@/lib/whatsapp/provider/types';`.
+
+A ordem relativa importa e é preservada: config antes de `resolveTemplateRow`, como estava — a mensagem de `whatsapp_not_configured` continua saindo antes de `template_malformed`.
 
 - [ ] **Step 6: Rodar e confirmar**
 
