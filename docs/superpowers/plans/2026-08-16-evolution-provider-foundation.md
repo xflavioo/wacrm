@@ -2139,7 +2139,11 @@ O caminho mais simples dos seis: sem retry, uma chamada só.
 Remova `import { sendReactionMessage } from '@/lib/whatsapp/meta-api';` (linha 3) e `import { decrypt } from '@/lib/whatsapp/encryption';` (linha 4). Acrescente:
 
 ```ts
-import { resolveProvider, ProviderResolutionError } from '@/lib/whatsapp/provider/resolve';
+import {
+  resolveProvider,
+  ProviderResolutionError,
+} from '@/lib/whatsapp/provider/resolve';
+import type { WhatsAppProvider } from '@/lib/whatsapp/provider/types';
 ```
 
 - [ ] **Step 2: Trocar config + envio**
@@ -2148,21 +2152,23 @@ Substitua as linhas 91-105 (do `const { data: config, error: configError }` até
 
 ```ts
     // WhatsApp provider. Account-scoped post-multi-user.
-    let provider;
+    let provider: WhatsAppProvider;
     try {
       ({ provider } = await resolveProvider(supabase, accountId));
     } catch (err) {
       if (err instanceof ProviderResolutionError) {
         return NextResponse.json(
           { error: 'WhatsApp not configured.' },
-          { status: 400 },
+          { status: err.status },
         );
       }
       throw err;
     }
 ```
 
-A mensagem literal `'WhatsApp not configured.'` é preservada de propósito — esta rota sempre respondeu com um texto mais curto que as outras, e trocá-lo mudaria o que a UI mostra.
+A mensagem literal `'WhatsApp not configured.'` é preservada de propósito — esta rota sempre respondeu com um texto mais curto que as outras, e trocá-lo mudaria o que a UI mostra. O **status** vem de `err.status`: para config ausente é 400 (idêntico ao antigo); para os dois casos novos de `resolveProvider` (não-Meta → 501, sem `phone_number_id` → 400) o código HTTP diz a verdade e a mensagem continua curta.
+
+Nota de comportamento: a rota antiga fazia `select('phone_number_id, access_token')`; `resolveProvider` faz `select('*')`. Mesma linha, mesma tenancy, mais colunas em memória — sem efeito observável.
 
 Em seguida, substitua a chamada de envio (linhas ~109-115) por:
 
