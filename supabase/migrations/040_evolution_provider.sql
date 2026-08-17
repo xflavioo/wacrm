@@ -11,7 +11,7 @@
 -- adiada; abrir isso depois é trocar a constraint por
 -- UNIQUE(account_id, provider), e essa migração não fecha essa porta.
 --
--- Quatro mudanças:
+-- Cinco mudanças:
 --
 --   1. `provider` — o discriminador. DEFAULT 'meta' porque toda linha
 --      existente É Meta; sem o default, a coluna NOT NULL não poderia
@@ -51,6 +51,17 @@
 --   4. `status` ganha 'connecting'. O Baileys tem um estado
 --      intermediário real (socket abrindo, QR pendente) que a Meta não
 --      tem, e o CHECK de duas posições da 001 não tem onde guardá-lo.
+--
+--   5. `whatsapp_config_provider_fields_check` — cada linha carrega os
+--      campos do SEU provedor e NENHUM do outro. As metades negativas
+--      importam tanto quanto as positivas: trocar de provedor reescreve
+--      a mesma linha (decisão D1), então colunas residuais do provedor
+--      anterior seriam o estado NORMAL, não acidente — e um
+--      `phone_number_id` residual numa linha Evolution continuaria
+--      roteável pelo webhook da Meta e continuaria reivindicando o
+--      número no UNIQUE da migração 013. O CHECK torna o híbrido
+--      irrepresentável; a troca de provedor é obrigada a limpar a
+--      identidade do provedor anterior na mesma escrita.
 --
 -- O QR Code NÃO ganha coluna. Ele é credencial de pareamento de
 -- dispositivo e expira em ~20s; será servido por rota autenticada e
@@ -105,10 +116,23 @@ BEGIN
     ALTER TABLE whatsapp_config
       ADD CONSTRAINT whatsapp_config_provider_fields_check
       CHECK (
-        (provider = 'meta'      AND phone_number_id IS NOT NULL)
+        (provider = 'meta'      AND phone_number_id IS NOT NULL
+                                AND evolution_url IS NULL
+                                AND evolution_instance IS NULL)
         OR
         (provider = 'evolution' AND evolution_url IS NOT NULL
-                                AND evolution_instance IS NOT NULL)
+                                AND evolution_instance IS NOT NULL
+                                AND phone_number_id IS NULL)
       );
   END IF;
 END $$;
+
+-- Documentação de catálogo — mesmo padrão das migrações 038/039, para
+-- o fato mais surpreendente do schema ficar visível num \d+ e não só
+-- enterrado neste arquivo.
+COMMENT ON COLUMN whatsapp_config.provider IS
+  'Transporte de WhatsApp da conta: ''meta'' (Cloud API) ou ''evolution'' (Baileys). Determina o que access_token contém.';
+COMMENT ON COLUMN whatsapp_config.evolution_url IS
+  'Base URL do servidor Evolution API. Preenchida só quando provider=''evolution''.';
+COMMENT ON COLUMN whatsapp_config.evolution_instance IS
+  'Nome da instância no servidor Evolution. Preenchido só quando provider=''evolution''.';

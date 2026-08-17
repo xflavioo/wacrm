@@ -54,6 +54,9 @@ BEGIN
     RAISE EXCEPTION 'whatsapp_config.provider is missing — migration 040 did not apply';
   END IF;
 
+  -- (As duas sondas rodam como postgres, dono da tabela — RLS não se
+  --  aplica. Se o CI um dia trocar de papel, elas falhariam com
+  --  insufficient_privilege, e a causa seria o harness, não a 040.)
   BEGIN
     INSERT INTO whatsapp_config (user_id, account_id, provider, access_token,
                                  evolution_url, evolution_instance, status)
@@ -67,6 +70,21 @@ BEGIN
       -- status='connecting' e phone_number_id NULL passaram por todos
       -- os CHECKs — que é exatamente o que a 040 tinha que liberar.
       NULL;
+  END;
+
+  -- Sonda negativa: os CHECKs também precisam RECUSAR. Sem ela, um
+  -- DO-guard que silenciosamente não criou a constraint continuaria
+  -- verde — o exato modo de falha que este arquivo existe para pegar.
+  -- check_violation dispara ANTES dos gatilhos de FK.
+  BEGIN
+    INSERT INTO whatsapp_config (user_id, account_id, provider, access_token, status)
+    VALUES (gen_random_uuid(), gen_random_uuid(), 'evolution', 'x', 'connecting');
+    RAISE EXCEPTION 'provider_fields_check accepted an evolution row with no evolution_url';
+  EXCEPTION
+    WHEN check_violation THEN
+      NULL; -- esperado
+    WHEN foreign_key_violation THEN
+      RAISE EXCEPTION 'provider_fields_check is missing — the bad row sailed past the CHECKs into FK validation';
   END;
 
   RAISE NOTICE 'schema verification passed';
