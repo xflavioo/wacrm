@@ -1812,6 +1812,21 @@
       "banWarning": "Unofficial connection: aggressive or mass messaging can get the number banned by WhatsApp. Keep a human pace.",
       "templatesTitle": "Templates are not used on the QR code channel",
       "templatesBody": "Message templates, template sync and number verification belong to the official Meta API. On the QR code channel you can message anyone at any time — there is no 24-hour window."
+    },
+    "quickReplies": {
+      "title": "Quick replies",
+      "description": "Reusable snippets — plain text or a saved interactive message — that agents can insert from the inbox composer.",
+      "new": "New quick reply",
+      "edit": "Edit quick reply",
+      "empty": "No quick replies yet. Create one to reuse it across conversations.",
+      "confirmDelete": "Delete this quick reply?",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Business hours",
+      "kindText": "Text",
+      "kindInteractive": "Interactive",
+      "textPlaceholder": "The message text to insert",
+      "cancel": "Cancel",
+      "save": "Save"
     }
   },
   "Toasts": {
@@ -1850,5 +1865,13 @@
     "waCleared": "Configuration cleared. You can now re-enter your credentials.",
     "waResetFailed": "Failed to reset configuration",
     "waWebhookCopied": "Webhook URL copied to clipboard"
+  },
+  "NotificationsPage": {
+    "title": "Notifications",
+    "subtitle": "Conversations other teammates assign to you, and connection alerts, show up here.",
+    "markAllRead": "Mark all as read",
+    "emptyTitle": "No notifications yet",
+    "emptyBody": "You'll see an alert here when someone assigns you a conversation.",
+    "unread": "Unread"
   }
 }

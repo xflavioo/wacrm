@@ -15,6 +15,13 @@ export default defineConfig({
       ENCRYPTION_KEY:
         "0000000000000000000000000000000000000000000000000000000000000000",
       META_APP_SECRET: "test-meta-app-secret",
+      // Pin the machine-dependent bits so the suite is deterministic on any
+      // box (a pt-BR / UTC-3 Windows laptop used to fail 5 formatting and
+      // weekday tests that assume en-US + UTC). `en-US` here is read by
+      // src/lib/locale.ts as the Intl locale; no messages/en-US.json exists,
+      // which the i18n loader tolerates (falls back to en).
+      NEXT_PUBLIC_APP_LOCALE: "en-US",
+      TZ: "UTC",
     },
     clearMocks: true,
   },

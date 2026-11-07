@@ -84,7 +84,7 @@ Colunas em `whatsapp_config` (todas `NULL`/default; **só** linhas Evolution as 
 
 Tipos de mensagem: `conversation`, `extendedTextMessage`, `imageMessage`, `videoMessage`, `audioMessage` (inclui `ptt`), `documentMessage`, `stickerMessage` → `image`, `locationMessage`, `contactMessage`/`contactsArrayMessage` → texto, `reactionMessage` → `message_reactions`, `buttonsResponseMessage`/`listResponseMessage` → `interactive`. Desconhecido → texto `[tipo não suportado]`. Grupos (`@g.us`), `status@broadcast` e newsletters são ignorados. `@lid` usa `key.remoteJidAlt` / `senderPn`; sem número real a mensagem é descartada com log (nunca cria contato com LID como telefone). Brasil: `55` + DDD + 9 dígitos é a forma canônica — um celular sem o nono dígito é normalizado para a forma com 9, e `findExistingContact` (sufixo de 8 dígitos) evita duplicar.
 
-Mídia: `chat/getBase64FromMediaMessage` → bytes → upload no bucket `chat-media` pelo **mesmo** caminho de `mirror-inbound-media.ts` (refatorado minimamente para aceitar bytes já baixados); falha de mídia nunca derruba a mensagem.
+Mídia: `chat/getBase64FromMediaMessage` → bytes → upload no bucket `chat-media` pelo **mesmo** `mirrorInboundMedia` da Meta, usando o parâmetro `download` que ele já aceitava (injetado com os bytes do Evolution) — **`mirror-inbound-media.ts` não foi alterado**. Falha de mídia nunca derruba a mensagem. Diferente da Meta, não existe URL de reserva: a opção `mirror_inbound_media` não se aplica ao Evolution.
 
 ## 5. Ordem de execução (um commit por fase)
 
@@ -98,3 +98,18 @@ Mídia: `chat/getBase64FromMediaMessage` → bytes → upload no bucket `chat-me
 ## 6. Baseline de testes
 
 Registrada antes da primeira mudança (ver commit da Fase 1). A fundação documenta 5 falhas pré-existentes dependentes de locale/fuso (`currency.test.ts`, `dashboard/date-utils.test.ts`); o alvo é **nenhuma falha nova**.
+
+## 7. Resultado da execução (o que mudou em relação ao plano)
+
+- **Webhook de status/entrega** e **pipeline de entrada** foram extraídos do webhook da Meta
+  para `src/lib/whatsapp/status-update.ts` e `inbound.ts` sem mudar o comportamento da Meta
+  (suíte `webhook/route.test.ts` da Meta passou intacta). Único acréscimo: `applyStatusUpdate`
+  aceita `accountId` opcional — usado só pelo Evolution (ids curtos podem repetir entre contas).
+- Os desvios de `send-message.ts`, `automations/meta-send.ts`, `flows/meta-send.ts` e `auto-reply.ts`
+  **não precisaram de edição**: todos já passam por `resolveProvider`, que agora devolve o provedor
+  Evolution. Única mudança em `send-message.ts`: o erro de envio no canal QR não menciona "Meta".
+- Disparo (broadcast) no QR: o wizard é próprio (`qr-broadcast-wizard.tsx`) e a rota de envio ganhou
+  o ramo `free_message`; o disparo continua sendo gravado em `broadcasts` com `template_name =
+  '__free_text__'` (a coluna é NOT NULL) e a mensagem em `template_variables.free_message` — sem
+  migration extra.
+- Listas de "fica de fora" e riscos: ver o resumo final entregue junto com este plano.

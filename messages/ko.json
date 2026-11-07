@@ -1812,6 +1812,21 @@
       "banWarning": "비공식 연결입니다. 공격적이거나 대량 전송은 WhatsApp이 번호를 차단할 수 있습니다. 사람이 보내는 속도를 유지하세요.",
       "templatesTitle": "QR 코드 채널에서는 템플릿을 사용하지 않습니다",
       "templatesBody": "메시지 템플릿, 템플릿 동기화, 번호 인증은 Meta 공식 API 기능입니다. QR 코드 채널에서는 언제든 누구에게나 메시지를 보낼 수 있으며 24시간 제한이 없습니다."
+    },
+    "quickReplies": {
+      "title": "빠른 답장",
+      "description": "재사용 가능한 문구 — 일반 텍스트 또는 저장된 대화형 메시지 — 를 받은편지함 입력창에서 삽입할 수 있습니다.",
+      "new": "새 빠른 답장",
+      "edit": "빠른 답장 편집",
+      "empty": "아직 빠른 답장이 없습니다. 하나 만들어 여러 대화에서 재사용하세요.",
+      "confirmDelete": "이 빠른 답장을 삭제할까요?",
+      "nameLabel": "이름",
+      "namePlaceholder": "예: 영업 시간",
+      "kindText": "텍스트",
+      "kindInteractive": "대화형",
+      "textPlaceholder": "삽입할 메시지 텍스트",
+      "cancel": "취소",
+      "save": "저장"
     }
   },
   "Toasts": {
@@ -1850,5 +1865,13 @@
     "waCleared": "설정이 초기화되었습니다. 이제 자격 증명을 다시 입력할 수 있습니다.",
     "waResetFailed": "설정을 초기화하지 못했습니다",
     "waWebhookCopied": "웹훅 URL이 클립보드에 복사되었습니다"
+  },
+  "NotificationsPage": {
+    "title": "알림",
+    "subtitle": "다른 팀원이 배정한 대화와 연결 알림이 여기에 표시됩니다.",
+    "markAllRead": "모두 읽음으로 표시",
+    "emptyTitle": "아직 알림이 없습니다",
+    "emptyBody": "누군가 대화를 배정하면 여기에 알림이 표시됩니다.",
+    "unread": "읽지 않음"
   }
 }

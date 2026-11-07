@@ -1812,6 +1812,21 @@
       "banWarning": "Conexão não oficial: envios agressivos ou em massa podem levar ao banimento do número pelo WhatsApp. Mantenha um ritmo humano.",
       "templatesTitle": "Modelos não são usados no canal QR code",
       "templatesBody": "Modelos de mensagem, sincronização de modelos e verificação de número fazem parte da API oficial da Meta. No canal QR code você pode escrever para qualquer pessoa a qualquer momento — não existe janela de 24 horas."
+    },
+    "quickReplies": {
+      "title": "Respostas rápidas",
+      "description": "Trechos reutilizáveis — texto simples ou uma mensagem interativa salva — que os atendentes inserem pelo campo de mensagem da caixa de entrada.",
+      "new": "Nova resposta rápida",
+      "edit": "Editar resposta rápida",
+      "empty": "Ainda não há respostas rápidas. Crie uma para reutilizar em várias conversas.",
+      "confirmDelete": "Excluir esta resposta rápida?",
+      "nameLabel": "Nome",
+      "namePlaceholder": "ex.: Horário de funcionamento",
+      "kindText": "Texto",
+      "kindInteractive": "Interativa",
+      "textPlaceholder": "O texto da mensagem a inserir",
+      "cancel": "Cancelar",
+      "save": "Salvar"
     }
   },
   "Toasts": {
@@ -1850,5 +1865,13 @@
     "waCleared": "Configuração limpa. Agora você pode informar as credenciais novamente.",
     "waResetFailed": "Não foi possível redefinir a configuração",
     "waWebhookCopied": "URL do webhook copiada para a área de transferência"
+  },
+  "NotificationsPage": {
+    "title": "Notificações",
+    "subtitle": "Conversas que outros colegas atribuem a você e avisos de conexão aparecem aqui.",
+    "markAllRead": "Marcar todas como lidas",
+    "emptyTitle": "Nenhuma notificação ainda",
+    "emptyBody": "Você verá um aviso aqui quando alguém atribuir uma conversa a você.",
+    "unread": "Não lida"
   }
 }

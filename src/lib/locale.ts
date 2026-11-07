@@ -22,7 +22,9 @@ export const INTL_LOCALE: string | undefined = IS_PT
   ? 'pt-BR'
   : APP_LOCALE === 'ko'
     ? 'ko-KR'
-    : undefined;
+    : /^[a-z]{2}-[A-Z]{2}$/.test(APP_LOCALE)
+      ? APP_LOCALE // an explicit BCP-47 tag (the test suite pins en-US)
+      : undefined;
 
 /** Opção `{ locale }` para o date-fns (`format`, `formatDistanceToNow`…). */
 export const DATE_FNS_LOCALE: Locale | undefined = IS_PT ? ptBR : undefined;
