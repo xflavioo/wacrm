@@ -55,6 +55,7 @@ import {
 import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
+import { useWhatsAppChannel } from "@/hooks/use-whatsapp-channel";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -142,6 +143,8 @@ export function MessageComposer({
   onClearReply,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
+  // Templates only exist on the official (Meta) API.
+  const { isQr } = useWhatsAppChannel();
 
   const tToast = useTranslations('Toasts')
 
@@ -699,6 +702,7 @@ export function MessageComposer({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {!isQr && (
           <GatedButton
             variant="ghost"
             size="sm"
@@ -710,6 +714,7 @@ export function MessageComposer({
           >
             <LayoutTemplate className="h-4 w-4" />
           </GatedButton>
+          )}
 
           <GatedButton
             variant="ghost"

@@ -51,6 +51,7 @@ import {
 } from "./message-composer";
 import { deleteAccountMedia } from "@/lib/storage/upload-media";
 import { TemplatePicker } from "./template-picker";
+import { useWhatsAppChannel } from "@/hooks/use-whatsapp-channel";
 import { AiThreadBanner } from "./ai-thread-banner";
 import { buildReplyPreview } from "./reply-quote";
 import { renderTemplateBody } from "@/lib/whatsapp/template-body";
@@ -170,6 +171,9 @@ export function MessageThread({
   const tToast = useTranslations('Toasts')
   const tTimer = useTranslations("Inbox.sessionTimer");
   const tQuote = useTranslations("Inbox.replyQuote");
+  // QR channel (Evolution): there is no 24-hour window — the operator can
+  // answer at any time — so the timer and the send block are switched off.
+  const { isQr } = useWhatsAppChannel();
 
   const { user } = useAuth();
   const { getPresence, getRow, now } = usePresence();
@@ -236,7 +240,7 @@ export function MessageThread({
 
   // 24-hour session timer
   const sessionInfo = useMemo(() => {
-    if (!messages.length) return { expired: false, remaining: "" };
+    if (isQr || !messages.length) return { expired: false, remaining: "" };
 
     // Find last customer message
     const lastCustomerMsg = [...messages]
@@ -259,7 +263,7 @@ export function MessageThread({
         : tTimer("xmRemaining", { minutes: Math.floor(hoursLeft * 60) });
 
     return { expired, remaining };
-  }, [messages, tTimer]);
+  }, [messages, tTimer, isQr]);
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
@@ -928,6 +932,7 @@ export function MessageThread({
           </div>
           {/* Session timer badge — hidden on the narrowest phones so
               the name + back arrow keep their room. */}
+          {!isQr && (
           <Badge
             variant="outline"
             className={cn(
@@ -938,6 +943,7 @@ export function MessageThread({
             <Clock className="h-3 w-3" />
             {sessionInfo.remaining}
           </Badge>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

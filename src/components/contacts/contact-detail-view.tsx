@@ -42,6 +42,7 @@ import {
   LayoutTemplate,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useWhatsAppChannel } from '@/hooks/use-whatsapp-channel';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -70,6 +71,7 @@ export function ContactDetailView({
   // with this contact by sending an approved template. The send route
   // find-or-creates the conversation, so no inbound message is required.
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const { isQr } = useWhatsAppChannel();
   const [sendingTemplate, setSendingTemplate] = useState(false);
 
   // Details tab
@@ -435,6 +437,7 @@ export function ContactDetailView({
                   </div>
                 </div>
               </div>
+              {!isQr && (
               <div className="mt-3">
                 <Button
                   size="sm"
@@ -450,6 +453,7 @@ export function ContactDetailView({
                   {t('sendTemplateBtn')}
                 </Button>
               </div>
+              )}
             </SheetHeader>
 
             {/* Tabs */}

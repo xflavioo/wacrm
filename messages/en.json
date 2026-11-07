@@ -801,6 +801,38 @@
         "progressDesc": "Processing {current} of {total} recipients...",
         "toastFailedPreview": "Failed to load preview data"
       }
+    },
+    "qr": {
+      "title": "New broadcast (QR code)",
+      "subtitle": "Send a free message — text with optional media — at a human pace.",
+      "stepMessage": "Message",
+      "stepAudience": "Audience",
+      "stepSend": "Send",
+      "banTitle": "Risk of getting the number banned",
+      "banBody": "This channel is not official. Fast or mass messaging can get your number banned by WhatsApp. Messages go out slowly, one by one, with a random delay. Keep lists short and only message people who expect to hear from you.",
+      "messageLabel": "Message",
+      "messagePlaceholder": "Hi {{nome}}! We have news about your party…",
+      "variablesHint": "Use {{nome}} to insert each contact's name.",
+      "mediaLabel": "Media link (optional)",
+      "mediaPlaceholder": "https://example.com/photo.jpg",
+      "mediaKindLabel": "Media type",
+      "kindImage": "Image",
+      "kindVideo": "Video",
+      "kindDocument": "Document",
+      "mediaHint": "Public link to the file. The message text becomes the caption.",
+      "next": "Next",
+      "back": "Back",
+      "nameLabel": "Broadcast name",
+      "namePlaceholder": "e.g. November promo",
+      "limitInfo": "Limit per broadcast: {max} recipients (change it in Settings → WhatsApp).",
+      "paceInfo": "Messages go out at a human pace: about one every {seconds} seconds.",
+      "overLimit": "This audience has {count} contacts, above the limit of {max} per broadcast. Narrow the audience or raise the limit in Settings → WhatsApp.",
+      "messageRequired": "Write the message first.",
+      "nameRequired": "Give the broadcast a name.",
+      "send": "Send broadcast",
+      "sending": "Sending… {progress}%",
+      "failed": "Broadcast failed",
+      "freeMessageLabel": "Free message (QR code)"
     }
   },
   "Automations": {
@@ -1777,7 +1809,9 @@
       "pairingCode": "Or use the pairing code: {code}",
       "close": "Close",
       "adminOnly": "Only owners and admins can change this channel.",
-      "banWarning": "Unofficial connection: aggressive or mass messaging can get the number banned by WhatsApp. Keep a human pace."
+      "banWarning": "Unofficial connection: aggressive or mass messaging can get the number banned by WhatsApp. Keep a human pace.",
+      "templatesTitle": "Templates are not used on the QR code channel",
+      "templatesBody": "Message templates, template sync and number verification belong to the official Meta API. On the QR code channel you can message anyone at any time — there is no 24-hour window."
     }
   },
   "Toasts": {

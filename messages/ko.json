@@ -801,6 +801,38 @@
         "progressDesc": "수신자 {total}명 중 {current}명 처리 중...",
         "toastFailedPreview": "미리보기 데이터를 불러오지 못했습니다"
       }
+    },
+    "qr": {
+      "title": "새 브로드캐스트 (QR 코드)",
+      "subtitle": "텍스트와 선택적 미디어로 구성된 자유 메시지를 사람이 보내는 속도로 전송합니다.",
+      "stepMessage": "메시지",
+      "stepAudience": "대상",
+      "stepSend": "전송",
+      "banTitle": "번호 차단 위험",
+      "banBody": "이 채널은 공식 채널이 아닙니다. 빠르거나 대량의 전송은 WhatsApp이 번호를 차단할 수 있습니다. 메시지는 무작위 지연과 함께 하나씩 천천히 전송됩니다. 목록을 짧게 유지하고 연락을 기대하는 사람에게만 보내세요.",
+      "messageLabel": "메시지",
+      "messagePlaceholder": "안녕하세요 {{nome}}님! 파티에 관한 소식이 있습니다…",
+      "variablesHint": "{{nome}}을(를) 사용하면 각 연락처의 이름이 삽입됩니다.",
+      "mediaLabel": "미디어 링크 (선택)",
+      "mediaPlaceholder": "https://example.com/photo.jpg",
+      "mediaKindLabel": "미디어 유형",
+      "kindImage": "이미지",
+      "kindVideo": "동영상",
+      "kindDocument": "문서",
+      "mediaHint": "파일의 공개 링크입니다. 메시지 텍스트가 캡션이 됩니다.",
+      "next": "다음",
+      "back": "뒤로",
+      "nameLabel": "브로드캐스트 이름",
+      "namePlaceholder": "예: 11월 프로모션",
+      "limitInfo": "브로드캐스트당 한도: 수신자 {max}명 (설정 → WhatsApp에서 변경).",
+      "paceInfo": "메시지는 사람이 보내는 속도로 약 {seconds}초에 하나씩 전송됩니다.",
+      "overLimit": "이 대상은 {count}명으로, 브로드캐스트당 한도 {max}명을 초과합니다. 대상을 줄이거나 설정 → WhatsApp에서 한도를 늘리세요.",
+      "messageRequired": "먼저 메시지를 작성하세요.",
+      "nameRequired": "브로드캐스트 이름을 입력하세요.",
+      "send": "브로드캐스트 전송",
+      "sending": "전송 중… {progress}%",
+      "failed": "브로드캐스트 실패",
+      "freeMessageLabel": "자유 메시지 (QR 코드)"
     }
   },
   "Automations": {
@@ -1777,7 +1809,9 @@
       "pairingCode": "또는 페어링 코드를 사용하세요: {code}",
       "close": "닫기",
       "adminOnly": "소유자와 관리자만 이 채널을 변경할 수 있습니다.",
-      "banWarning": "비공식 연결입니다. 공격적이거나 대량 전송은 WhatsApp이 번호를 차단할 수 있습니다. 사람이 보내는 속도를 유지하세요."
+      "banWarning": "비공식 연결입니다. 공격적이거나 대량 전송은 WhatsApp이 번호를 차단할 수 있습니다. 사람이 보내는 속도를 유지하세요.",
+      "templatesTitle": "QR 코드 채널에서는 템플릿을 사용하지 않습니다",
+      "templatesBody": "메시지 템플릿, 템플릿 동기화, 번호 인증은 Meta 공식 API 기능입니다. QR 코드 채널에서는 언제든 누구에게나 메시지를 보낼 수 있으며 24시간 제한이 없습니다."
     }
   },
   "Toasts": {

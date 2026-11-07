@@ -801,6 +801,38 @@
         "progressDesc": "Processando {current} de {total} destinatários...",
         "toastFailedPreview": "Falha ao carregar dados de visualização"
       }
+    },
+    "qr": {
+      "title": "Novo disparo (QR code)",
+      "subtitle": "Envie uma mensagem livre — texto com mídia opcional — num ritmo humano.",
+      "stepMessage": "Mensagem",
+      "stepAudience": "Público",
+      "stepSend": "Enviar",
+      "banTitle": "Risco de banimento do número",
+      "banBody": "Este canal não é oficial. Envios rápidos ou em massa podem levar ao banimento do seu número pelo WhatsApp. As mensagens saem devagar, uma a uma, com atraso aleatório. Mantenha listas curtas e escreva só para quem espera receber contato.",
+      "messageLabel": "Mensagem",
+      "messagePlaceholder": "Olá {{nome}}! Temos novidades sobre a sua festa…",
+      "variablesHint": "Use {{nome}} para inserir o nome de cada contato.",
+      "mediaLabel": "Link da mídia (opcional)",
+      "mediaPlaceholder": "https://exemplo.com.br/foto.jpg",
+      "mediaKindLabel": "Tipo da mídia",
+      "kindImage": "Imagem",
+      "kindVideo": "Vídeo",
+      "kindDocument": "Documento",
+      "mediaHint": "Link público do arquivo. O texto da mensagem vira a legenda.",
+      "next": "Avançar",
+      "back": "Voltar",
+      "nameLabel": "Nome do disparo",
+      "namePlaceholder": "ex.: promoção de novembro",
+      "limitInfo": "Limite por disparo: {max} destinatários (altere em Configurações → WhatsApp).",
+      "paceInfo": "As mensagens saem num ritmo humano: cerca de uma a cada {seconds} segundos.",
+      "overLimit": "Este público tem {count} contatos, acima do limite de {max} por disparo. Reduza o público ou aumente o limite em Configurações → WhatsApp.",
+      "messageRequired": "Escreva a mensagem primeiro.",
+      "nameRequired": "Dê um nome ao disparo.",
+      "send": "Enviar disparo",
+      "sending": "Enviando… {progress}%",
+      "failed": "O disparo falhou",
+      "freeMessageLabel": "Mensagem livre (QR code)"
     }
   },
   "Automations": {
@@ -1777,7 +1809,9 @@
       "pairingCode": "Ou use o código de pareamento: {code}",
       "close": "Fechar",
       "adminOnly": "Só proprietários e administradores podem alterar este canal.",
-      "banWarning": "Conexão não oficial: envios agressivos ou em massa podem levar ao banimento do número pelo WhatsApp. Mantenha um ritmo humano."
+      "banWarning": "Conexão não oficial: envios agressivos ou em massa podem levar ao banimento do número pelo WhatsApp. Mantenha um ritmo humano.",
+      "templatesTitle": "Modelos não são usados no canal QR code",
+      "templatesBody": "Modelos de mensagem, sincronização de modelos e verificação de número fazem parte da API oficial da Meta. No canal QR code você pode escrever para qualquer pessoa a qualquer momento — não existe janela de 24 horas."
     }
   },
   "Toasts": {

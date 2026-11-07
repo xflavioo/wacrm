@@ -12,6 +12,8 @@ import { Step3Personalize } from '@/components/broadcasts/step3-personalize';
 import { Step4ScheduleSend } from '@/components/broadcasts/step4-schedule-send';
 import { useBroadcastSending } from '@/hooks/use-broadcast-sending';
 import { Check } from 'lucide-react';
+import { QrBroadcastWizard } from '@/components/broadcasts/qr-broadcast-wizard';
+import { useWhatsAppChannel } from '@/hooks/use-whatsapp-channel';
 import { useTranslations } from 'next-intl';
 
 const steps = [
@@ -21,7 +23,15 @@ const steps = [
   { label: 'send', key: 'send' },
 ] as const;
 
+// The QR channel (Evolution) has no templates: it gets its own free-text
+// wizard. The Meta wizard below is untouched.
 export default function NewBroadcastPage() {
+  const { isQr, ready } = useWhatsAppChannel();
+  if (!ready) return <div className="min-h-[400px]" />;
+  return isQr ? <QrBroadcastWizard /> : <MetaBroadcastWizard />;
+}
+
+function MetaBroadcastWizard() {
   const router = useRouter();
   const t = useTranslations('Broadcasts.new');
   const { accountId } = useAuth();

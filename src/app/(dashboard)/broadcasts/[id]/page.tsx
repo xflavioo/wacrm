@@ -150,6 +150,7 @@ export default function BroadcastDetailPage() {
   const router = useRouter();
   const t = useTranslations('Broadcasts.detail');
   const tStatus = useTranslations('Broadcasts.status');
+  const tQr = useTranslations('Broadcasts.qr');
   const broadcastId = params.id as string;
 
   const [broadcast, setBroadcast] = useState<Broadcast | null>(null);
@@ -357,7 +358,14 @@ export default function BroadcastDetailPage() {
               </span>
             </div>
             <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
-              <span>{t('template', { name: broadcast.template_name })}</span>
+              <span>
+                {t('template', {
+                  name:
+                    broadcast.template_name === '__free_text__'
+                      ? tQr('freeMessageLabel')
+                      : broadcast.template_name,
+                })}
+              </span>
               <span>-</span>
               <span>
                 {t('createdAt', { date: new Date(broadcast.created_at).toLocaleDateString(INTL_LOCALE) })}
