@@ -1,5 +1,6 @@
 'use client';
 
+import { INTL_LOCALE } from '@/lib/locale'
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Upload, Trash2, Mail, CircleAlert } from 'lucide-react';
@@ -199,7 +200,7 @@ export function ProfileForm() {
       removeAvatar);
 
   const joined = user?.created_at
-    ? new Date(user.created_at).toLocaleDateString(undefined, {
+    ? new Date(user.created_at).toLocaleDateString(INTL_LOCALE, {
         year: 'numeric',
         month: 'long',
         day: 'numeric',

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from 'next-intl'
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -7,6 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { Notification } from "@/types";
 import { Bell, CheckCheck, Loader2, UserPlus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { DATE_FNS_LOCALE } from "@/lib/locale";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -18,6 +20,7 @@ const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
 };
 
 export default function NotificationsPage() {
+  const tToast = useTranslations('Toasts')
   const router = useRouter();
   const { accountId } = useAuth();
   const [notifications, setNotifications] = useState<Notification[] | null>(
@@ -104,11 +107,11 @@ export default function NotificationsPage() {
         .eq("id", id)
         .is("read_at", null);
       if (updateErr) {
-        toast.error("Failed to mark notification as read");
+        toast.error(tToast('markReadFailed'));
         load();
       }
     },
-    [load],
+    [tToast, load],
   );
 
   const handleClick = useCallback(
@@ -137,10 +140,10 @@ export default function NotificationsPage() {
       .is("read_at", null);
     setMarkingAll(false);
     if (updateErr) {
-      toast.error("Failed to mark all as read");
+      toast.error(tToast('markAllReadFailed'));
       load();
     }
-  }, [unreadIds.length, load]);
+  }, [tToast, unreadIds.length, load]);
 
   if (error) {
     return (
@@ -254,6 +257,7 @@ export default function NotificationsPage() {
                     <p className="mt-1 text-[11px] text-muted-foreground/70">
                       {formatDistanceToNow(new Date(n.created_at), {
                         addSuffix: true,
+                        locale: DATE_FNS_LOCALE,
                       })}
                     </p>
                   </div>

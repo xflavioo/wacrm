@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl'
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Bot, RotateCcw, Send, Loader2, UserCircle2, ArrowRight } from 'lucide-react';
@@ -14,6 +15,7 @@ interface Turn {
 }
 
 export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
+  const tToast = useTranslations('Toasts')
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -43,7 +45,7 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (data.code === 'ai_not_configured') {
-          toast.error('No agent configured yet — finish Setup first.');
+          toast.error(tToast('noAgentConfigured'));
         } else {
           toast.error(data.error ?? "Couldn't get a reply.");
         }
@@ -64,7 +66,7 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
         },
       ]);
     } catch {
-      toast.error("Couldn't reach the agent.");
+      toast.error(tToast('agentUnreachable'));
       setTurns(turns);
       setInput(text);
     } finally {

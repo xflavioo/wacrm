@@ -1,5 +1,6 @@
 'use client';
 
+import { INTL_LOCALE } from '@/lib/locale'
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
@@ -56,6 +57,8 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
+
+  const tToast = useTranslations('Toasts')
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
 
@@ -360,7 +363,7 @@ export function ContactDetailView({
       toast.success(t('toastTemplateSent', { name: template.name }));
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'network error';
-      toast.error(`Failed to send template: ${reason}`);
+      toast.error(tToast('sendTemplateFailed', { reason }));
     } finally {
       setSendingTemplate(false);
     }
@@ -627,7 +630,7 @@ export function ContactDetailView({
                           </button>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1.5">
-                          {new Date(note.created_at).toLocaleDateString('en-US', {
+                          {new Date(note.created_at).toLocaleDateString(INTL_LOCALE ?? 'en-US', {
                             month: 'short',
                             day: 'numeric',
                             year: 'numeric',

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from 'next-intl'
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, MessageSquare, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -43,6 +44,7 @@ function emptyDraft(): DraftState {
 }
 
 export function QuickRepliesManager() {
+  const tToast = useTranslations('Toasts')
   const [items, setItems] = useState<QuickReply[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<DraftState | null>(null);
@@ -77,7 +79,7 @@ export function QuickRepliesManager() {
   const save = useCallback(async () => {
     if (!draft) return;
     if (!draft.title.trim()) {
-      toast.error("Give the quick reply a name.");
+      toast.error(tToast('quickReplyNeedsName'));
       return;
     }
     const payload =
@@ -97,30 +99,30 @@ export function QuickRepliesManager() {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error ?? "Couldn't save the quick reply.");
+        toast.error(data.error ?? tToast('quickReplySaveFailed'));
         return;
       }
       toast.success(draft.id ? "Quick reply updated." : "Quick reply created.");
       setDraft(null);
       await load();
     } catch {
-      toast.error("Couldn't save the quick reply.");
+      toast.error(tToast('quickReplySaveFailed'));
     } finally {
       setSaving(false);
     }
-  }, [draft, load]);
+  }, [tToast, draft, load]);
 
   const remove = useCallback(
     async (id: string) => {
       if (!window.confirm("Delete this quick reply?")) return;
       const res = await fetch(`/api/quick-replies/${id}`, { method: "DELETE" });
       if (!res.ok) {
-        toast.error("Couldn't delete the quick reply.");
+        toast.error(tToast('quickReplyDeleteFailed'));
         return;
       }
       await load();
     },
-    [load],
+    [tToast, load],
   );
 
   return (

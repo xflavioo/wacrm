@@ -139,6 +139,16 @@ Full walkthrough with screenshots:
 > (Vercel, Railway, your own VPS). Hostinger is recommended, not
 > required._
 
+## Language (pt-BR)
+
+The UI ships in English (`en`), Brazilian Portuguese (`pt` / `pt-BR`) and
+Korean (`ko`). Pick it with `NEXT_PUBLIC_APP_LOCALE` in `.env.local`
+(`.env.local.example` defaults to `pt`). Dates, relative times and the
+default currency (BRL) follow the locale.
+
+> `NEXT_PUBLIC_*` variables are inlined at **build time**. After changing the
+> locale you must rebuild (`npm run build`) — restarting the server is not enough.
+
 ## Documentation
 
 Full self-host documentation — Supabase migrations, WhatsApp Business
