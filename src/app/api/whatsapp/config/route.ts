@@ -309,11 +309,33 @@ export async function POST(request: Request) {
     // /register when the user didn't provide a PIN this time around.
     const { data: existing } = await supabase
       .from('whatsapp_config')
-      .select('id, registered_at, phone_number_id')
+      // `*` (not a column list) so `provider` comes back when migration
+      // 040 has run and is simply absent on an older database.
+      .select('*')
       .eq('account_id', accountId)
       .maybeSingle()
 
+    // Switching from the QR (Evolution) channel back to Meta: the row
+    // is rewritten in place (one provider per account), and migration
+    // 041's provider_fields_check rejects a hybrid, so the Evolution
+    // identity must be nulled in this SAME update. Only added when the
+    // row really is Evolution, so Meta-only installs that have not run
+    // 040/041 yet keep saving exactly as before.
+    const leavingEvolution =
+      existing?.provider === 'evolution'
+        ? {
+            provider: 'meta',
+            evolution_url: null,
+            evolution_instance: null,
+            evolution_webhook_secret_hash: null,
+            evolution_phone: null,
+            evolution_next_send_at: null,
+            evolution_last_to: null,
+          }
+        : {}
+
     const sameNumber =
+      existing?.provider !== 'evolution' &&
       existing?.phone_number_id === phone_number_id &&
       existing?.registered_at != null
 
@@ -399,6 +421,7 @@ export async function POST(request: Request) {
       subscribed_apps_at: subscribedAppsAt ?? null,
       last_registration_error: registrationError,
       updated_at: new Date().toISOString(),
+      ...leavingEvolution,
     }
 
     if (existing) {

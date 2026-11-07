@@ -91,6 +91,21 @@ BEGIN
       RAISE EXCEPTION 'provider_fields_check is missing — the bad row sailed past the CHECKs into FK validation';
   END;
 
+  -- Migração 041: colunas do canal Evolution + a função da fila antiban.
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'whatsapp_config'
+      AND column_name = 'evolution_webhook_secret_hash'
+  ) THEN
+    RAISE EXCEPTION 'whatsapp_config.evolution_webhook_secret_hash is missing — migration 041 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc WHERE proname = 'claim_evolution_send_slot'
+  ) THEN
+    RAISE EXCEPTION 'claim_evolution_send_slot() is missing — migration 041 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

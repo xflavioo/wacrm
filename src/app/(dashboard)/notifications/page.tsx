@@ -6,17 +6,17 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import type { Notification } from "@/types";
-import { Bell, CheckCheck, Loader2, UserPlus } from "lucide-react";
+import { Bell, CheckCheck, Loader2, Unplug, UserPlus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { DATE_FNS_LOCALE } from "@/lib/locale";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-// Icon per notification type. Only one type exists today
-// (conversation_assigned) but this keeps future types a one-line add.
+// Icon per notification type — future types are a one-line add.
 const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   conversation_assigned: UserPlus,
+  whatsapp_disconnected: Unplug,
 };
 
 export default function NotificationsPage() {
@@ -119,6 +119,8 @@ export default function NotificationsPage() {
       if (!n.read_at) markRead(n.id);
       if (n.conversation_id) {
         router.push(`/inbox?c=${n.conversation_id}`);
+      } else if (n.type === "whatsapp_disconnected") {
+        router.push("/settings?tab=whatsapp");
       }
     },
     [markRead, router],

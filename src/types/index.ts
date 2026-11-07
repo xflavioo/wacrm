@@ -187,7 +187,7 @@ export interface Conversation {
 // Notifications (migration 027)
 // ============================================================
 
-export type NotificationType = 'conversation_assigned';
+export type NotificationType = 'conversation_assigned' | 'whatsapp_disconnected';
 
 export interface Notification {
   id: string;
@@ -333,6 +333,14 @@ export interface WhatsAppConfigEvolution extends WhatsAppConfigBase {
   evolution_instance: string;
   /** Sempre NULL numa linha Evolution — a coluna existe para a Meta. */
   phone_number_id?: null;
+  /** Número conectado via QR (só dígitos). Migração 041. */
+  evolution_phone?: string | null;
+  /** Intervalo mínimo entre envios para números diferentes, em ms. */
+  evolution_min_interval_ms?: number;
+  /** Atraso aleatório extra (0..jitter) somado ao intervalo, em ms. */
+  evolution_jitter_ms?: number;
+  /** Teto de destinatários por disparo. */
+  evolution_broadcast_max?: number;
 }
 
 export type WhatsAppConfig = WhatsAppConfigMeta | WhatsAppConfigEvolution;
