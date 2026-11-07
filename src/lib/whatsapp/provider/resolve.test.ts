@@ -7,6 +7,8 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
   isLegacyFormat: vi.fn(() => false),
 }));
 
+vi.mock('@/lib/flows/admin-client', () => ({ supabaseAdmin: () => ({}) }));
+
 import { decrypt } from '@/lib/whatsapp/encryption';
 import {
   assertMetaConfig,
@@ -98,11 +100,9 @@ describe('resolveProvider', () => {
     ).rejects.toThrow(/phone_number_id/);
   });
 
-  // A Evolution ainda não tem transporte; falhar alto é melhor do que
-  // devolver um provedor Meta com credencial de Evolution, que mandaria
-  // a chave da Evolution para graph.facebook.com. E a recusa acontece
-  // ANTES do decrypt: o segredo não sai da coluna para ser descartado.
-  it('throws a clear not-implemented error for an evolution row', async () => {
+  // Canal QR code: a credencial é a API key da Evolution e só vai
+  // para o servidor Evolution — nunca para graph.facebook.com.
+  it('builds an Evolution provider (not a Meta one) from an evolution row', async () => {
     const evo = {
       id: 'cfg-2',
       account_id: 'acct-1',
@@ -114,9 +114,28 @@ describe('resolveProvider', () => {
       status: 'connected',
     };
 
+    const { provider, decryptedToken, config } = await resolveProvider(
+      dbReturning(evo).db,
+      'acct-1'
+    );
+    expect(provider.kind).toBe('evolution');
+    expect(provider.addressVariants('5591988887777')).toEqual(['5591988887777']);
+    expect(decryptedToken).toBe('decrypted:cipher');
+    expect(config.id).toBe('cfg-2');
+  });
+
+  it('refuses an evolution row missing its server fields', async () => {
+    const broken = {
+      id: 'cfg-3',
+      account_id: 'acct-1',
+      provider: 'evolution',
+      access_token: 'cipher',
+      evolution_url: null,
+      evolution_instance: null,
+    };
     await expect(
-      resolveProvider(dbReturning(evo).db, 'acct-1')
-    ).rejects.toThrow(/not implemented/i);
+      resolveProvider(dbReturning(broken).db, 'acct-1')
+    ).rejects.toMatchObject({ code: 'whatsapp_not_configured', status: 400 });
     expect(decrypt).not.toHaveBeenCalled();
   });
 
