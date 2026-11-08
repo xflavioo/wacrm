@@ -17,10 +17,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
-import { runAutomationsForTrigger } from '@/lib/automations/engine'
+import { claimFirstInboundMessage } from '@/lib/conversations/first-inbound'
+import { resumeAwaitingReply, runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { normalizePhone } from '@/lib/whatsapp/phone-utils'
+import { flagBroadcastReply } from '@/lib/whatsapp/broadcast-recipient-webhook'
+import { identityDisplayName, type WaIdentity } from '@/lib/whatsapp/wa-identity'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any
@@ -54,55 +58,175 @@ export interface InboundThread {
 // Contato e conversa
 // ------------------------------------------------------------
 
+/**
+ * Identidade de um remetente que so tem telefone (Evolution/QR): sem
+ * BSUID, sem username. A Meta monta a sua a partir do payload.
+ */
+export function phoneIdentity(phone: string, name: string): WaIdentity {
+  return { phone, waUserId: null, waParentUserId: null, waUsername: null, name }
+}
+
+type ContactRow = Row
+
+/**
+ * Look a contact up by BSUID. Exact match on the column backing
+ * migration 040's unique index (upstream numbering) - no fuzzy matching,
+ * because a BSUID is an opaque identifier with exactly one correct
+ * spelling.
+ */
+async function findContactByWaUserId(
+  db: SupabaseClient,
+  accountId: string,
+  waUserId: string
+): Promise<ContactRow | null> {
+  const { data, error } = await db
+    .from('contacts')
+    .select('*')
+    .eq('account_id', accountId)
+    .eq('wa_user_id', waUserId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[webhook] BSUID contact lookup failed:', error.message)
+    return null
+  }
+  return data ?? null
+}
+
+/**
+ * Fields worth writing back onto a contact we just matched, given what
+ * this delivery told us. Returns null when nothing changed, so the
+ * common case costs no UPDATE.
+ *
+ * The BSUID backfill is the important one: it stamps the id onto a
+ * contact we have only ever known by phone, so the NEXT message from
+ * that person - which may well arrive with no phone number at all -
+ * still resolves to this same row instead of forking a new one.
+ * Likewise a phone backfill upgrades a BSUID-only contact the moment
+ * Meta discloses the number, making them reachable by every existing
+ * phone-based code path.
+ */
+function contactIdentityPatch(
+  existing: ContactRow,
+  identity: WaIdentity
+): Record<string, unknown> | null {
+  const patch: Record<string, unknown> = {}
+
+  // Only ever from a label the provider actually supplied.
+  // identityDisplayName falls back to the phone number / BSUID, which is
+  // the right choice for a brand-new row but would clobber an agent's
+  // hand-edited name on every inbound message from a contact with no
+  // WhatsApp profile name.
+  const name = identity.name || identity.waUsername
+  if (name && name !== existing.name) patch.name = name
+
+  if (identity.waUserId && identity.waUserId !== existing.wa_user_id) {
+    patch.wa_user_id = identity.waUserId
+  }
+  if (
+    identity.waParentUserId &&
+    identity.waParentUserId !== existing.wa_parent_user_id
+  ) {
+    patch.wa_parent_user_id = identity.waParentUserId
+  }
+  if (identity.waUsername && identity.waUsername !== existing.wa_username) {
+    patch.wa_username = identity.waUsername
+  }
+  // Only ever fills a blank. An existing number is left alone - the
+  // send path's variant retry already owns correcting it, and formatting
+  // differences are not a reason to rewrite it.
+  if (identity.phone && !normalizePhone(existing.phone ?? '')) {
+    patch.phone = identity.phone
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null
+}
+
 export async function findOrCreateContact(
   db: SupabaseClient,
   accountId: string,
   configOwnerUserId: string,
-  phone: string,
-  name: string
+  identity: WaIdentity
 ): Promise<ContactOutcome | null> {
-  // Find an existing contact for this account by phone. The shared
-  // helper pre-filters in SQL by the last-8-digit suffix (so we don't
-  // pull every contact on every inbound message) then applies the
-  // strict `phonesMatch` in JS on the small candidate set. The same
-  // helper backs the manual contact form and CSV import, so all three
-  // paths agree on what "same number" means (issue #212).
-  const existingContact = await findExistingContact(db, accountId, phone)
+  // BSUID first when we have one. It is stable per (user, business
+  // portfolio) and, unlike the phone number, Meta will keep sending it
+  // - so it is the key that survives a customer adopting a username.
+  let existingContact: ContactRow | null = identity.waUserId
+    ? await findContactByWaUserId(db, accountId, identity.waUserId)
+    : null
+
+  // Fall back to the phone. The same helper backs the manual contact form
+  // and CSV import, so all three paths agree on what "same number"
+  // means (issue #212).
+  if (!existingContact && identity.phone) {
+    existingContact = await findExistingContact(db, accountId, identity.phone)
+  }
 
   if (existingContact) {
-    // Update name if it changed
-    if (name && name !== existingContact.name) {
-      await db
+    const patch = contactIdentityPatch(existingContact, identity)
+    if (patch) {
+      const { data: updated, error: updateError } = await db
         .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
+        .update({ ...patch, updated_at: new Date().toISOString() })
         .eq('id', existingContact.id)
+        .select()
+        .maybeSingle()
+
+      if (updateError) {
+        // A BSUID backfill can lose a race with a concurrent delivery
+        // that already claimed it for another row. Not fatal - the
+        // message still belongs to the contact we matched.
+        console.error(
+          '[webhook] contact identity backfill failed:',
+          updateError.message
+        )
+      } else if (updated) {
+        existingContact = updated
+      }
     }
     return { contact: existingContact, wasCreated: false }
   }
 
   // Create new contact. account_id is the tenancy column;
   // user_id is the NOT NULL FK audit column (no inbound message
-  // has a single "user who created" it — we attribute to the
+  // has a single "user who created" it - we attribute to the
   // WhatsApp config owner as a stable default).
+  //
+  // phone stays NOT NULL in the schema, so a BSUID-only sender is
+  // stored with '' - which the phone partial unique index tolerates,
+  // and the BSUID unique index is what keeps them unique instead.
   const { data: newContact, error: createError } = await db
     .from('contacts')
     .insert({
       account_id: accountId,
       user_id: configOwnerUserId,
-      phone,
-      name: name || phone,
+      phone: identity.phone,
+      name: identityDisplayName(identity),
+      wa_user_id: identity.waUserId,
+      wa_parent_user_id: identity.waParentUserId,
+      wa_username: identity.waUsername,
     })
     .select()
     .single()
 
   if (createError) {
     // Lost a race: a concurrent inbound delivery (or another path)
-    // created this contact between our lookup and insert, and the
-    // unique index (migration 022) rejected the duplicate. Re-resolve
-    // the existing row instead of dropping the message.
+    // created this contact between our lookup and insert, and a unique
+    // index (phone or BSUID) rejected the duplicate. Re-resolve the
+    // existing row instead of dropping the message.
     if (isUniqueViolation(createError)) {
-      const raced = await findExistingContact(db, accountId, phone)
+      const raced = identity.waUserId
+        ? await findContactByWaUserId(db, accountId, identity.waUserId)
+        : null
       if (raced) return { contact: raced, wasCreated: false }
+      if (identity.phone) {
+        const racedByPhone = await findExistingContact(
+          db,
+          accountId,
+          identity.phone
+        )
+        if (racedByPhone) return { contact: racedByPhone, wasCreated: false }
+      }
     }
     console.error('Error creating contact:', createError)
     return null
@@ -191,8 +315,7 @@ export async function findOrCreateConversation(
  */
 export async function resolveInboundThread(
   ctx: InboundContext,
-  phone: string,
-  name: string
+  identity: WaIdentity
 ): Promise<InboundThread | null> {
   const { db, accountId, configOwnerUserId } = ctx
 
@@ -200,8 +323,7 @@ export async function resolveInboundThread(
     db,
     accountId,
     configOwnerUserId,
-    phone,
-    name
+    identity
   )
   if (!contact) return null
 
@@ -323,11 +445,10 @@ export async function applyInboundReaction(
 // ------------------------------------------------------------
 
 /**
- * If an inbound message's sender is on a still-unreplied
- * broadcast_recipients row, flip it to `replied` so the reply count
- * advances on the parent broadcast.
+ * Flip the contact's most recent broadcast recipient row to replied
+ * when it was sent within the reply window and is not already replied.
  *
- * Runs on a best-effort basis — failures here must not break the
+ * Runs on a best-effort basis - failures here must not break the
  * main inbound-message flow, so errors are swallowed with a log.
  */
 async function flagBroadcastReplyIfAny(
@@ -336,30 +457,7 @@ async function flagBroadcastReplyIfAny(
   contactId: string
 ) {
   try {
-    // Most recent outbound broadcast in this account that hasn't
-    // been replied to yet. Account-scoped so a shared inbox reply
-    // marks the broadcast as replied regardless of which teammate
-    // sent it.
-    const { data: recs, error } = await db
-      .from('broadcast_recipients')
-      .select('id, status, broadcast_id, broadcasts!inner(account_id)')
-      .eq('contact_id', contactId)
-      .eq('broadcasts.account_id', accountId)
-      .in('status', ['sent', 'delivered', 'read'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (error || !recs || recs.length === 0) return
-
-    const row = recs[0]
-    const { error: updErr } = await db
-      .from('broadcast_recipients')
-      .update({ status: 'replied', replied_at: new Date().toISOString() })
-      .eq('id', row.id)
-
-    if (updErr) {
-      console.error('Error marking broadcast recipient replied:', updErr)
-    }
+    await flagBroadcastReply(db, accountId, contactId)
   } catch (err) {
     console.error('flagBroadcastReplyIfAny failed:', err)
   }
@@ -424,16 +522,7 @@ export async function persistAndDispatchInbound(
 
   const { contentText, contentType, interactiveReplyId } = message
 
-  // Determine whether this is the contact's very first inbound message
-  // BEFORE we insert, so the count is accurate. Covers the case where
-  // the contact row already exists (manual add / CSV import) but they've
-  // never messaged us before — which new_contact_created wouldn't catch.
-  const { count: priorCustomerMsgCount } = await db
-    .from('messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('conversation_id', conversation.id)
-    .eq('sender_type', 'customer')
-  const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0
+  const receivedAt = new Date(message.timestampSeconds * 1000).toISOString()
 
   // Idempotent insert. Providers retry webhook deliveries (a slow ack, a
   // transient 5xx), and each retry replays the exact same message id. The
@@ -459,7 +548,7 @@ export async function persistAndDispatchInbound(
         media_type: message.mediaType,
         message_id: message.providerMessageId,
         status: 'delivered',
-        created_at: new Date(message.timestampSeconds * 1000).toISOString(),
+        created_at: receivedAt,
         reply_to_message_id: replyToInternalId,
         // Only populated for content_type='interactive'. Migration 010 added
         // the column; null for every other content_type so existing inserts
@@ -486,6 +575,15 @@ export async function persistAndDispatchInbound(
     )
     return
   }
+
+  // Whether this is the contact's very first inbound message. Claimed
+  // atomically (only one concurrent delivery wins) and only AFTER the
+  // idempotent insert, so a replay never counts as a first message.
+  const isFirstInboundMessage = await claimFirstInboundMessage(
+    db,
+    conversation,
+    receivedAt
+  )
 
   // Update conversation. The unread bump is done DB-side (migration 037's
   // bump_conversation_on_inbound) rather than as a read-modify-write of the
@@ -558,6 +656,28 @@ export async function persistAndDispatchInbound(
   // run here (not earlier) so the contact, conversation, and inbound
   // message all exist before any step — including send_message — runs.
   const inboundText = contentText ?? message.fallbackText ?? ''
+
+  // An automation parked at a "wait for reply" Send Buttons / Send List
+  // step takes this message as its reply - a tap or typed text - and
+  // continues from the step after the send. Like a Flow consuming the
+  // message, that suppresses the content-level triggers and AI reply
+  // below so the customer does not get a second bot answering. Runs
+  // BEFORE the trigger dispatch so the message that parks a run can
+  // never also resume it. Flows still win: only checked if no flow
+  // consumed the message. Never throws.
+  const automationConsumed = flowConsumed
+    ? false
+    : await resumeAwaitingReply({
+        accountId,
+        contactId: contactRecord.id,
+        context: {
+          message_text: inboundText,
+          conversation_id: conversation.id,
+          interactive_reply_id: interactiveReplyId ?? undefined,
+        },
+      })
+  const contentConsumed = flowConsumed || automationConsumed
+
   const automationTriggers: (
     | 'new_contact_created'
     | 'first_inbound_message'
@@ -565,9 +685,9 @@ export async function persistAndDispatchInbound(
     | 'keyword_match'
     | 'interactive_reply'
   )[] = []
-  // Content-level triggers are suppressed when a flow consumed the
-  // message — see the comment block above.
-  if (!flowConsumed) {
+  // Content-level triggers are suppressed when a flow or a waiting
+  // automation consumed the message - see the comment blocks above.
+  if (!contentConsumed) {
     automationTriggers.push('new_message_received', 'keyword_match')
     // Interactive tap → fire the interactive_reply trigger too (only
     // meaningful when a button/list reply actually arrived). Enables
@@ -613,12 +733,15 @@ export async function persistAndDispatchInbound(
   // the account has enabled it. Awaited inside `after()` (same reason as
   // the webhook dispatch below); `dispatchInboundToAiReply` owns its
   // eligibility gates + try/catch and never throws.
-  if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
+  if (!contentConsumed && !interactiveReplyId && inboundText.trim()) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
       contactId: contactRecord.id,
       configOwnerUserId,
+      // Lets the bot show "typing..." (and mark the message read) while
+      // the reply is generated.
+      inboundMessageId: message.providerMessageId,
     })
   }
 

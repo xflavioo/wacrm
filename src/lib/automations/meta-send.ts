@@ -3,17 +3,19 @@ import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
 } from '@/lib/flows/meta-send'
-import {
-  sanitizePhoneForMeta,
-  isValidE164,
-} from '@/lib/whatsapp/phone-utils'
+import { resolveContactSendTarget } from '@/lib/whatsapp/wa-identity'
+import { assertConversationInAccount } from '@/lib/whatsapp/conversation-scope'
 import { resolveProvider } from '@/lib/whatsapp/provider/resolve'
-import { sendWithAddressRetry } from '@/lib/whatsapp/provider/retry'
+import { sendToTarget } from '@/lib/whatsapp/provider/retry'
 import {
   resolveTemplateRow,
   templateContentText,
+  templateHeaderMediaUrl,
 } from '@/lib/whatsapp/template-body'
 import { supabaseAdmin } from './admin-client'
+import { getT } from '@/lib/i18n/translate'
+
+const t = getT('LibErrors')
 
 // ------------------------------------------------------------
 // Automation-side WhatsApp sender (text + template).
@@ -124,25 +126,32 @@ async function sendViaProvider(input: SendInput): Promise<{ whatsapp_message_id:
   // new tenancy column.
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, wa_user_id')
     .eq('id', input.contactId)
     .eq('account_id', input.accountId)
     .maybeSingle()
-  if (contactErr || !contact?.phone) {
-    throw new Error('contact not found for this account')
+  if (contactErr || !contact) {
+    throw new Error(t('send.contactNotFound'))
   }
 
-  const sanitized = sanitizePhoneForMeta(contact.phone)
-  if (!isValidE164(sanitized)) {
-    throw new Error(`contact phone invalid: ${contact.phone}`)
+  // Same for the conversation the message lands in — see
+  // conversation-scope.ts (GHSA-m4fx-g6pr-hrw8).
+  await assertConversationInAccount(db, input.conversationId, input.accountId)
+
+  // Phone number, or the business-scoped user ID when Meta has never
+  // given us a number for this customer (issue #519).
+  const sendTarget = resolveContactSendTarget(contact)
+  if (!sendTarget) {
+    throw new Error(
+      t('send.noWhatsAppAddress', { phone: contact.phone || t('send.none') })
+    )
   }
+  const sanitized = sendTarget.target
 
   const { provider } = await resolveProvider(db, input.accountId)
 
-  // Local template row — read for the body we persist below, not for
-  // the Meta payload (the wire shape is deliberately unchanged here).
-  // A missing row is fine: the send still goes out, we just can't
-  // reconstruct the text the customer saw.
+  // Local template row. A missing row is fine: the send still goes
+  // out, we just can't reconstruct the text the customer saw.
   const templateRow =
     input.kind === 'template'
       ? (
@@ -155,15 +164,16 @@ async function sendViaProvider(input: SendInput): Promise<{ whatsapp_message_id:
         ).row
       : null
 
-  const { messageId: waMessageId, workingAddress } = await sendWithAddressRetry(
+  const { messageId: waMessageId, workingAddress } = await sendToTarget(
     provider,
-    sanitized,
+    sendTarget,
     async (phone) => {
       if (input.kind === 'template') {
         const r = await provider.sendTemplate({
           to: phone,
           templateName: input.templateName,
           language: input.language,
+          template: templateRow ?? undefined,
           params: input.params,
         })
         return r.messageId
@@ -173,7 +183,7 @@ async function sendViaProvider(input: SendInput): Promise<{ whatsapp_message_id:
     },
   )
 
-  if (workingAddress !== sanitized) {
+  if (sendTarget.isPhone && workingAddress !== sanitized) {
     await db.from('contacts').update({ phone: workingAddress }).eq('id', contact.id)
   }
 
@@ -195,6 +205,7 @@ async function sendViaProvider(input: SendInput): Promise<{ whatsapp_message_id:
     sender_type: 'bot',
     content_type,
     content_text,
+    media_url: templateHeaderMediaUrl(templateRow),
     template_name,
     message_id: waMessageId,
     status: 'sent',
@@ -202,7 +213,7 @@ async function sendViaProvider(input: SendInput): Promise<{ whatsapp_message_id:
   if (msgErr) {
     // Meta already has the message; record the DB error but don't pretend
     // the send failed. The engine wraps this in a log line.
-    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+    throw new Error(t('send.dbInsertFailed', { message: msgErr.message }))
   }
 
   await db
@@ -216,6 +227,7 @@ async function sendViaProvider(input: SendInput): Promise<{ whatsapp_message_id:
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.conversationId)
+    .eq('account_id', input.accountId)
 
   return { whatsapp_message_id: waMessageId }
 }

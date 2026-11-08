@@ -6,8 +6,9 @@ número real do Niverlândia — o WhatsApp não oficial pode ser banido.
 
 ## 0. Pré-requisitos
 
-1. **Migrations aplicadas** no Supabase de teste, nesta ordem: `040_evolution_provider.sql`
-   e `041_evolution_channel.sql` (arquivos em `supabase/migrations/`). Este repositório
+1. **Migrations aplicadas** no Supabase de teste: todas as de `supabase/migrations/` em
+   ordem, de `001` até `061`. As do canal são `060_evolution_provider.sql` e
+   `061_evolution_channel.sql`; as `040`–`059` vêm do repositório oficial. Este repositório
    **não** aplica migration por você.
 2. **Variáveis** no `.env.local` (veja `.env.local.example`):
    - `ENCRYPTION_KEY` (64 hex) — criptografa a API key do Evolution;

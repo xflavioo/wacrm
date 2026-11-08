@@ -3,7 +3,7 @@
 > **Status: especificação-alvo, ainda não implementada.** Este documento
 > descreve o comportamento pretendido, no presente, para orientar a
 > implementação. O que já existe no código: a camada de provedor
-> (`src/lib/whatsapp/provider/`) e a migração `040_evolution_provider`.
+> (`src/lib/whatsapp/provider/`) e a migração `060_evolution_provider`.
 > O transporte Evolution, o webhook `/api/evolution/webhook` e a UI de
 > QR Code ainda não existem. Plano de implementação:
 > `docs/superpowers/plans/`.

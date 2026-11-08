@@ -5,6 +5,11 @@ import {
   ProviderResolutionError,
   assertMetaConfig,
 } from '@/lib/whatsapp/provider/resolve'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
+import { getT } from '@/lib/i18n/translate'
+import { mediaProxyHeaders } from '@/lib/media/proxy-response-headers'
+
+const t = getT('Api')
 
 export async function GET(
   request: Request,
@@ -15,7 +20,7 @@ export async function GET(
 
     if (!mediaId) {
       return NextResponse.json(
-        { error: 'Media ID is required' },
+        { error: t('media.idRequired') },
         { status: 400 }
       )
     }
@@ -29,10 +34,13 @@ export async function GET(
 
     if (authError || !user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: t('common.unauthorized') },
         { status: 401 }
       )
     }
+
+    const limit = checkRateLimit(`whatsapp-media:${user.id}`, RATE_LIMITS.whatsappMedia)
+    if (!limit.success) return rateLimitResponse(limit)
 
     // Resolve the caller's account_id — whatsapp_config is one-per-
     // account post-multi-user, so a teammate fetching media for a
@@ -46,7 +54,7 @@ export async function GET(
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: t('common.profileNotLinked') },
         { status: 403 },
       )
     }
@@ -60,7 +68,7 @@ export async function GET(
 
     if (configError || !config) {
       return NextResponse.json(
-        { error: 'WhatsApp not configured' },
+        { error: t('common.whatsappNotConfigured') },
         { status: 400 }
       )
     }
@@ -81,10 +89,7 @@ export async function GET(
 
     return new Response(new Uint8Array(buffer), {
       status: 200,
-      headers: {
-        'Content-Type': contentType || mediaInfo.mimeType || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=86400',
-      },
+      headers: mediaProxyHeaders(mediaId, contentType || mediaInfo.mimeType),
     })
   } catch (error) {
     // A recusa do portão Meta-only é um 400 com causa nomeada, não um
@@ -98,7 +103,7 @@ export async function GET(
     }
     console.error('Error in WhatsApp media GET:', error)
     return NextResponse.json(
-      { error: 'Failed to fetch media' },
+      { error: t('media.fetchFailed') },
       { status: 500 }
     )
   }

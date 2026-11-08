@@ -16,6 +16,7 @@ import {
   applyInboundReaction,
   persistAndDispatchInbound,
   persistOutboundFromPhone,
+  phoneIdentity,
   resolveInboundThread,
   type InboundContext,
   type NormalizedInboundMessage,
@@ -148,7 +149,7 @@ async function handleUpsert(
     // Eco de um envio do wacrm (ou replay): já está gravado.
     if (await messageExists(db, row.account_id, converted.providerMessageId)) return;
 
-    const thread = await resolveInboundThread(ctx, converted.phone, '');
+    const thread = await resolveInboundThread(ctx, phoneIdentity(converted.phone, ''));
     if (!thread) return;
 
     const media = await resolveMedia(db, row, converted);
@@ -162,7 +163,7 @@ async function handleUpsert(
 
   // ---- mensagem do cliente ----
   if (converted.kind === 'reaction') {
-    const thread = await resolveInboundThread(ctx, converted.phone, converted.contactName);
+    const thread = await resolveInboundThread(ctx, phoneIdentity(converted.phone, converted.contactName));
     if (!thread) return;
     await applyInboundReaction(db, {
       conversationId: thread.conversation.id,
@@ -179,7 +180,7 @@ async function handleUpsert(
     return;
   }
 
-  const thread = await resolveInboundThread(ctx, converted.phone, converted.contactName);
+  const thread = await resolveInboundThread(ctx, phoneIdentity(converted.phone, converted.contactName));
   if (!thread) return;
 
   const media = await resolveMedia(db, row, converted);

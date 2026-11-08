@@ -1,10 +1,10 @@
 "use client";
 
-import { useTranslations } from 'next-intl'
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { notificationsAccountFilter } from "@/lib/notifications/unread-count";
 import type { Notification } from "@/types";
 import { Bell, CheckCheck, Loader2, Unplug, UserPlus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -12,6 +12,7 @@ import { DATE_FNS_LOCALE } from "@/lib/locale";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 // Icon per notification type — future types are a one-line add.
 const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
@@ -20,8 +21,7 @@ const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
 };
 
 export default function NotificationsPage() {
-  const tToast = useTranslations('Toasts')
-  const t = useTranslations('NotificationsPage')
+  const t = useTranslations("Notifications");
   const router = useRouter();
   const { accountId } = useAuth();
   const [notifications, setNotifications] = useState<Notification[] | null>(
@@ -54,12 +54,18 @@ export default function NotificationsPage() {
   // Realtime — new assignments appear without a refresh, and a
   // "mark all read" fired from another tab/device stays in sync here.
   useEffect(() => {
+    if (!accountId) return;
     const supabase = createClient();
     const channel = supabase
-      .channel("notifications-page")
+      .channel(`notifications-page:${accountId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "notifications" },
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: notificationsAccountFilter(accountId),
+        },
         (payload) => {
           if (payload.eventType === "INSERT") {
             const row = payload.new as Notification;
@@ -87,7 +93,7 @@ export default function NotificationsPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [accountId]);
 
   const markRead = useCallback(
     async (id: string) => {
@@ -108,11 +114,11 @@ export default function NotificationsPage() {
         .eq("id", id)
         .is("read_at", null);
       if (updateErr) {
-        toast.error(tToast('markReadFailed'));
+        toast.error(t("markReadFailed"));
         load();
       }
     },
-    [tToast, load],
+    [load, t],
   );
 
   const handleClick = useCallback(
@@ -130,7 +136,7 @@ export default function NotificationsPage() {
   const unreadIds = notifications?.filter((n) => !n.read_at).map((n) => n.id) ?? [];
 
   const markAllRead = useCallback(async () => {
-    if (unreadIds.length === 0) return;
+    if (unreadIds.length === 0 || !accountId) return;
     setMarkingAll(true);
     const now = new Date().toISOString();
     setNotifications(
@@ -140,20 +146,21 @@ export default function NotificationsPage() {
     const { error: updateErr } = await supabase
       .from("notifications")
       .update({ read_at: now })
+      .eq("account_id", accountId)
       .is("read_at", null);
     setMarkingAll(false);
     if (updateErr) {
-      toast.error(tToast('markAllReadFailed'));
+      toast.error(t("markAllFailed"));
       load();
     }
-  }, [tToast, unreadIds.length, load]);
+  }, [unreadIds.length, accountId, load, t]);
 
   if (error) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2">
         <p className="text-sm text-destructive">{error}</p>
         <Button variant="outline" onClick={() => window.location.reload()}>
-          Retry
+          {t("retry")}
         </Button>
       </div>
     );
@@ -173,7 +180,7 @@ export default function NotificationsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {t("subtitle")}
+            {t("description")}
           </p>
         </div>
         <Button
@@ -200,7 +207,7 @@ export default function NotificationsPage() {
             {t("emptyTitle")}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {t("emptyBody")}
+            {t("emptyDesc")}
           </p>
         </div>
       ) : (
