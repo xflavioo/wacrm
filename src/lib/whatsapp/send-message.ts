@@ -404,6 +404,11 @@ export async function sendMessageToConversation(
     const message =
       err instanceof Error ? err.message : 'Unknown provider API error';
     console.error('[send-message] send failed for all variants:', message);
+    // The Meta wording/code are unchanged; the QR channel (Evolution) gets
+    // its own so the inbox never tells a QR-code user about "Meta".
+    if (provider.kind !== 'meta') {
+      throw new SendMessageError('provider_error', message, 502);
+    }
     throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
   }
 

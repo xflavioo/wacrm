@@ -13,6 +13,16 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit'
+import {
+  FREE_BATCH_MAX,
+  FreeBroadcastError,
+  sendFreeBroadcastBatch,
+  validateFreeMessage,
+} from '@/lib/whatsapp/evolution/free-broadcast'
+
+// QR channel (Evolution) sends are paced by the provider's anti-ban queue,
+// so a batch can legitimately take a while: give it room.
+export const maxDuration = 120
 
 interface BroadcastResult {
   phone: string
@@ -110,6 +120,47 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       )
+    }
+
+    // Free-text broadcast — QR channel (Evolution) only. There are no
+    // templates there, so the body carries `free_message` instead of
+    // `template_name`. Everything below this block is the unchanged Meta
+    // template path.
+    if (body.free_message !== undefined) {
+      try {
+        const free = validateFreeMessage(body.free_message)
+        if (recipients.length > FREE_BATCH_MAX) {
+          throw new FreeBroadcastError(
+            `Envie no máximo ${FREE_BATCH_MAX} destinatários por requisição.`
+          )
+        }
+        const { provider: freeProvider } = await resolveProvider(
+          supabase,
+          accountId
+        )
+        if (freeProvider.kind !== 'evolution') {
+          throw new FreeBroadcastError(
+            'Disparo com mensagem livre só existe no canal QR code. Na API oficial use um modelo aprovado.'
+          )
+        }
+        const results = await sendFreeBroadcastBatch(
+          freeProvider,
+          recipients.map((r: NewRecipient & { text?: string }) => ({
+            phone: r.phone,
+            text: r.text,
+          })),
+          free
+        )
+        return NextResponse.json({ results })
+      } catch (err) {
+        if (err instanceof FreeBroadcastError) {
+          return NextResponse.json({ error: err.message }, { status: err.status })
+        }
+        if (err instanceof ProviderResolutionError) {
+          return NextResponse.json({ error: err.message }, { status: err.status })
+        }
+        throw err
+      }
     }
 
     if (!template_name) {

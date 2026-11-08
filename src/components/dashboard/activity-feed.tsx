@@ -1,5 +1,6 @@
 "use client"
 
+import { INTL_LOCALE } from '@/lib/locale'
 import Link from 'next/link'
 import { useState } from 'react'
 import {
@@ -165,5 +166,5 @@ function relativeTime(iso: string, t: ReturnType<typeof useTranslations>): strin
   if (diffSec < 3600) return t('timeM', { min: Math.floor(diffSec / 60) })
   if (diffSec < 86400) return t('timeH', { hr: Math.floor(diffSec / 3600) })
   if (diffSec < 2_592_000) return t('timeD', { day: Math.floor(diffSec / 86400) })
-  return new Date(iso).toLocaleDateString()
+  return new Date(iso).toLocaleDateString(INTL_LOCALE)
 }

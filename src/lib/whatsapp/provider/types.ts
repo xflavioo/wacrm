@@ -159,4 +159,12 @@ export interface WhatsAppProvider {
    * exceção de forma na interface. O chamador atual ignora o valor.
    */
   sendReaction(args: ProviderSendReactionArgs): Promise<ProviderSendResult>;
+
+  /**
+   * Presença "digitando…". Opcional: a Meta só tem o indicador atrelado a
+   * uma mensagem recebida; o canal QR (Evolution) tem presença avulsa.
+   */
+  sendTyping?(args: { to: string; durationMs?: number }): Promise<void>;
+  /** Marca uma mensagem recebida como lida (tiques azuis). Opcional. */
+  markRead?(args: { to: string; messageId: string }): Promise<void>;
 }

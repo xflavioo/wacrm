@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl'
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { BarChart3, Bot, PencilLine } from 'lucide-react';
@@ -23,6 +24,7 @@ import { Skeleton } from '@/components/dashboard/skeleton';
 import { BarChart } from '@/components/tremor/bar-chart';
 import { formatCompactNumber } from '@/lib/currency';
 import { format, parseISO } from 'date-fns';
+import { DATE_FNS_LOCALE, DAY_MONTH_PATTERN } from '@/lib/locale';
 
 interface UsageResponse {
   window_days: number;
@@ -54,6 +56,7 @@ const WINDOWS = [7, 30, 90] as const;
  * `GET /api/ai/usage` route. Renders nothing for non-admins.
  */
 export function AiUsageCard() {
+  const tToast = useTranslations('Toasts')
   const { accountId, accountRole, profileLoading } = useAuth();
   const canView = accountRole ? canEditSettings(accountRole) : false;
 
@@ -70,18 +73,18 @@ export function AiUsageCard() {
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
-        toast.error(json?.error ?? 'Failed to load usage');
+        toast.error(json?.error ?? tToast('usageLoadFailed'));
         setData(null);
         return;
       }
       setData(json as UsageResponse);
     } catch {
-      toast.error('Failed to load usage');
+      toast.error(tToast('usageLoadFailed'));
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tToast]);
 
   useEffect(() => {
     if (!canView || !accountId) return;
@@ -95,7 +98,7 @@ export function AiUsageCard() {
   if (profileLoading || !canView) return null;
 
   const chartData =
-    data?.daily.map((d) => ({ day: format(parseISO(d.date), 'MMM d'), Tokens: d.tokens })) ??
+    data?.daily.map((d) => ({ day: format(parseISO(d.date), DAY_MONTH_PATTERN, { locale: DATE_FNS_LOCALE }), Tokens: d.tokens })) ??
     [];
   const hasSpend = (data?.totals.total_tokens ?? 0) > 0;
 

@@ -75,6 +75,8 @@ export function InviteMemberDialog({
   onCreated,
 }: InviteMemberDialogProps) {
   const t = useTranslations('Settings.invite');
+
+  const tToast = useTranslations('Toasts')
   const tRoles = useTranslations('Settings.roles');
   const { account } = useAuth();
   const [role, setRole] = useState<InviteRole>('agent');
@@ -140,7 +142,7 @@ export function InviteMemberDialog({
       onCreated();
     } catch (err) {
       console.error('[InviteMemberDialog] create error:', err);
-      toast.error('Could not reach the server. Try again?');
+      toast.error(tToast('serverUnreachableRetry'));
     } finally {
       setSubmitting(false);
     }

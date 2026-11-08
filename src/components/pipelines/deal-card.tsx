@@ -1,5 +1,6 @@
 "use client";
 
+import { INTL_LOCALE } from '@/lib/locale'
 import type { Deal, PipelineStage } from "@/types";
 import { Calendar, Check, X } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
@@ -13,7 +14,7 @@ interface DealCardProps {
 }
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("en-US", {
+  return new Date(dateStr).toLocaleDateString(INTL_LOCALE ?? 'en-US', {
     month: "short",
     day: "numeric",
     year: "numeric",

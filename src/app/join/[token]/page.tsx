@@ -22,6 +22,8 @@
 // this page after email verification.
 // ============================================================
 
+import { useTranslations } from 'next-intl'
+import { INTL_LOCALE } from '@/lib/locale'
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -91,6 +93,7 @@ const FAIL_COPY: Record<PeekFail['reason'], { title: string; body: string }> = {
 };
 
 export default function JoinPage() {
+  const tToast = useTranslations('Toasts')
   const params = useParams<{ token: string }>();
   const token = params?.token;
 
@@ -191,16 +194,16 @@ export default function JoinPage() {
         setAccepting(false);
         return;
       }
-      toast.success('Welcome to the team');
+      toast.success(tToast('welcomeToTeam'));
       // Full reload (not router.push) so AuthProvider re-fetches
       // the profile with the new account_id and account_role.
       window.location.href = '/dashboard';
     } catch (err) {
       console.error('[join] redeem error:', err);
-      toast.error('Could not reach the server');
+      toast.error(tToast('serverUnreachable'));
       setAccepting(false);
     }
-  }, [token]);
+  }, [tToast, token]);
 
   const handleSignOutAndRetry = useCallback(async () => {
     setSigningOut(true);
@@ -212,10 +215,10 @@ export default function JoinPage() {
       window.location.reload();
     } catch (err) {
       console.error('[join] sign-out error:', err);
-      toast.error('Could not sign out. Try refreshing the page.');
+      toast.error(tToast('signOutFailed'));
       setSigningOut(false);
     }
-  }, []);
+  }, [tToast]);
 
   // ----- Loading state (peek pending OR auth not yet resolved) -----
   if (peek === null || authedUserId === undefined) {
@@ -307,7 +310,7 @@ export default function JoinPage() {
           {ROLE_LABEL[peek.role]}
         </span>
         . Link valid until{' '}
-        {new Date(peek.expires_at).toLocaleDateString(undefined, {
+        {new Date(peek.expires_at).toLocaleDateString(INTL_LOCALE, {
           year: 'numeric',
           month: 'short',
           day: 'numeric',

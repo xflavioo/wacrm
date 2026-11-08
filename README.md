@@ -139,6 +139,64 @@ Full walkthrough with screenshots:
 > (Vercel, Railway, your own VPS). Hostinger is recommended, not
 > required._
 
+## Language (pt-BR)
+
+The UI ships in English (`en`), Brazilian Portuguese (`pt` / `pt-BR`) and
+Korean (`ko`). Pick it with `NEXT_PUBLIC_APP_LOCALE` in `.env.local`
+(`.env.local.example` defaults to `pt`). Dates, relative times and the
+default currency (BRL) follow the locale.
+
+> `NEXT_PUBLIC_*` variables are inlined at **build time**. After changing the
+> locale you must rebuild (`npm run build`) — restarting the server is not enough.
+
+## Canal Evolution (QR code)
+
+Besides the official Meta Cloud API, an account can use **WhatsApp by QR code**
+through your own [Evolution API](https://github.com/EvolutionAPI/evolution-api)
+server (v2.x). Pick the channel in **Settings → WhatsApp**; one channel is
+active per account.
+
+**Variáveis de ambiente**
+
+| Variável | Para quê |
+|---|---|
+| `ENCRYPTION_KEY` | Criptografa a API key do Evolution (AES-256-GCM), como o token da Meta |
+| `SUPABASE_SERVICE_ROLE_KEY` | O webhook e a fila antibanimento gravam com ela |
+| `NEXT_PUBLIC_SITE_URL` | URL **pública** do wacrm (https). É o endereço que o Evolution chama. `localhost` não funciona |
+| `NEXT_PUBLIC_APP_LOCALE` | `pt` para a interface em português do Brasil (refaça o build) |
+
+A API key do Evolution **não** vai em variável de ambiente: é digitada na tela de
+configurações e fica criptografada no banco.
+
+**Como configurar o webhook** — não é preciso fazer nada à mão. Ao salvar em
+Configurações → WhatsApp, o wacrm gera um segredo, registra o webhook da instância no
+Evolution apontando para `/api/evolution/webhook/<segredo>` (eventos
+`MESSAGES_UPSERT`, `MESSAGES_UPDATE`, `CONNECTION_UPDATE`, `QRCODE_UPDATED`) e guarda só o
+hash do segredo. Salvar de novo rotaciona o segredo. Roteiro completo de teste:
+[docs/evolution-teste-manual.md](./docs/evolution-teste-manual.md); decisões e mapeamento de
+eventos: [docs/evolution-plano.md](./docs/evolution-plano.md).
+
+**Migrations** — aplique `040_evolution_provider.sql` e `041_evolution_channel.sql`
+antes de usar o canal (o repositório não roda migration por você).
+
+**Limitações conhecidas**
+
+- É uma conexão **não oficial** (Baileys): o WhatsApp pode banir números que enviem rápido
+  ou em massa. O wacrm limita o ritmo (intervalo mínimo + atraso aleatório, configurável) e o
+  tamanho de cada disparo (padrão 50), mas o risco existe.
+- **Sem templates** nem janela de 24 h: modelos, sincronização, verificação de número e
+  saúde do número só existem na API oficial. Passos de automação/fluxo que enviam
+  *template* falham com uma mensagem clara no canal QR.
+- **Botões e listas** são enviados como texto numerado ("Responda 1, 2 ou 3"); a resposta
+  numérica do cliente é convertida de volta no toque da opção.
+- Disparos no canal QR são **mensagem livre** (texto + mídia opcional), enviados da aba do
+  navegador (como o fluxo por template) e **não retomam** sozinhos se a aba fechar no meio.
+- O QR code **nunca é gravado**; a tela busca um novo a cada ~20 s direto no Evolution.
+- Mensagens de **grupos**, **status** e **canais (newsletter)** são ignoradas.
+- Um contato que chega só com `@lid` (sem número real no payload) é descartado, com log.
+- O webhook usa o formato de payload do Evolution v2.x; o registro do webhook tenta o
+  formato aninhado (2.2+) e cai para o plano (2.0/2.1).
+
 ## Documentation
 
 Full self-host documentation — Supabase migrations, WhatsApp Business

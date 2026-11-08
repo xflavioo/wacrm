@@ -8,6 +8,7 @@ import {
   batchRetryDelayMs,
 } from '@/lib/broadcast-retry';
 import { Contact, MessageTemplate } from '@/types';
+import { useTranslations } from 'next-intl';
 
 export type CustomFieldOperator = 'is' | 'is_not' | 'contains';
 
@@ -50,6 +51,30 @@ interface BroadcastPayload {
    * falls back to the template's stored URL only when this is empty.
    */
   headerMediaUrl?: string;
+  /**
+   * QR channel (Evolution) only: a free-text (optionally media) message
+   * instead of a template. `template` then is a placeholder and its
+   * name is the `FREE_TEXT_TEMPLATE_NAME` sentinel. `{{nome}}` in `text`
+   * is replaced per recipient with the contact's name.
+   */
+  freeMessage?: {
+    text: string;
+    mediaUrl?: string;
+    mediaKind?: 'image' | 'video' | 'document';
+  };
+  /** Cap on audience size for a free-text broadcast (account setting). */
+  maxRecipients?: number;
+}
+
+/** `broadcasts.template_name` is NOT NULL: free-text broadcasts store this. */
+export const FREE_TEXT_TEMPLATE_NAME = '__free_text__';
+
+/** Free sends are paced server-side (one every few seconds): keep batches small. */
+const FREE_SEND_BATCH_SIZE = 3;
+
+function personalize(text: string, contact: Contact | null | undefined): string {
+  const name = contact?.name?.trim() || '';
+  return text.replace(/{{s*(nome|name)s*}}/gi, name);
 }
 
 interface UseBroadcastSendingReturn {
@@ -158,6 +183,7 @@ async function fetchCustomValueIndex(
 
 export function useBroadcastSending(): UseBroadcastSendingReturn {
   const { accountId } = useAuth();
+  const tQr = useTranslations('Broadcasts.qr');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -359,6 +385,15 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       if (contacts.length === 0) {
         throw new Error('No contacts found for this audience.');
       }
+      if (
+        payload.freeMessage &&
+        payload.maxRecipients &&
+        contacts.length > payload.maxRecipients
+      ) {
+        throw new Error(
+          tQr('overLimit', { count: contacts.length, max: payload.maxRecipients }),
+        );
+      }
 
       // ── Step 2: Create broadcast row ──────────────────────────────
       setProgress(10);
@@ -370,7 +405,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           name: payload.name,
           template_name: payload.template.name,
           template_language: payload.template.language ?? 'en_US',
-          template_variables: payload.variables,
+          template_variables: payload.freeMessage
+            ? { free_message: payload.freeMessage }
+            : payload.variables,
           audience_filter: {
             type: payload.audience.type,
             tagIds: payload.audience.tagIds,
@@ -475,8 +512,12 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       const messageParams =
         isMediaHeader && headerMediaUrl ? { headerMediaUrl } : undefined;
 
-      for (let i = 0; i < recipients.length; i += SEND_BATCH_SIZE) {
-        const batch = recipients.slice(i, i + SEND_BATCH_SIZE);
+      const sendBatchSize = payload.freeMessage
+        ? FREE_SEND_BATCH_SIZE
+        : SEND_BATCH_SIZE;
+
+      for (let i = 0; i < recipients.length; i += sendBatchSize) {
+        const batch = recipients.slice(i, i + sendBatchSize);
 
         const apiRecipients = batch
           .filter((r) => r.contact?.phone)
@@ -486,6 +527,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             // pass and any later resume send identical params.
             params: Array.isArray(r.template_params) ? r.template_params : [],
             ...(messageParams ? { messageParams } : {}),
+            ...(payload.freeMessage
+              ? { text: personalize(payload.freeMessage.text, r.contact) }
+              : {}),
           }));
 
         if (apiRecipients.length === 0) continue;
@@ -499,11 +543,18 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             const res = await fetch('/api/whatsapp/broadcast', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                recipients: apiRecipients,
-                template_name: payload.template.name,
-                template_language: payload.template.language ?? 'en_US',
-              }),
+              body: JSON.stringify(
+                payload.freeMessage
+                  ? {
+                      recipients: apiRecipients,
+                      free_message: payload.freeMessage,
+                    }
+                  : {
+                      recipients: apiRecipients,
+                      template_name: payload.template.name,
+                      template_language: payload.template.language ?? 'en_US',
+                    },
+              ),
             });
 
             data = await res.json();
@@ -578,7 +629,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           30 + Math.round(((i + batch.length) / totalRecipients) * 60);
         setProgress(progressPct);
 
-        if (i + SEND_BATCH_SIZE < recipients.length) {
+        if (i + sendBatchSize < recipients.length && !payload.freeMessage) {
           await sleep(SEND_BATCH_DELAY_MS);
         }
       }

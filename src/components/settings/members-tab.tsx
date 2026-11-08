@@ -21,6 +21,7 @@
 //   the role anyway.
 // ============================================================
 
+import { INTL_LOCALE } from '@/lib/locale'
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
@@ -108,7 +109,7 @@ const EDITABLE_ROLES: { value: AccountRole }[] = [
 function fmtDate(iso: string): string {
   // Match the rest of the dashboard's locale-light formatting.
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString(INTL_LOCALE, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -126,6 +127,8 @@ function fmtExpiresIn(iso: string, t: (key: string, values?: Record<string, stri
 
 export function MembersTab() {
   const t = useTranslations('Settings.members');
+
+  const tToast = useTranslations('Toasts')
   const tRoles = useTranslations('Settings.roles');
   const { user, canManageMembers } = useAuth();
   const { getPresence, getRow, now } = usePresence();
@@ -170,11 +173,11 @@ export function MembersTab() {
       }
     } catch (err) {
       console.error('[MembersTab] load error:', err);
-      toast.error('Could not reach the server');
+      toast.error(tToast('serverUnreachable'));
     } finally {
       setLoading(false);
     }
-  }, [canManageMembers]);
+  }, [tToast, canManageMembers]);
 
   useEffect(() => {
     void loadEverything();
@@ -222,7 +225,7 @@ export function MembersTab() {
         ),
       );
       console.error('[MembersTab] role change error:', err);
-      toast.error('Could not reach the server');
+      toast.error(tToast('serverUnreachable'));
     } finally {
       setPendingMemberAction(null);
     }
@@ -248,7 +251,7 @@ export function MembersTab() {
       setRemovingMember(null);
     } catch (err) {
       console.error('[MembersTab] remove error:', err);
-      toast.error('Could not reach the server');
+      toast.error(tToast('serverUnreachable'));
     } finally {
       setPendingMemberAction(null);
     }
@@ -268,7 +271,7 @@ export function MembersTab() {
       setInvitations((prev) => prev.filter((i) => i.id !== invite.id));
     } catch (err) {
       console.error('[MembersTab] revoke error:', err);
-      toast.error('Could not reach the server');
+      toast.error(tToast('serverUnreachable'));
     }
   }
 

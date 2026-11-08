@@ -900,6 +900,7 @@ function SendMediaForm({
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   t: ReturnType<typeof useTranslations>;
 }) {
+  const tToast = useTranslations('Toasts');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -928,7 +929,7 @@ function SendMediaForm({
           media_url: publicUrl,
           filename: file.name,
         });
-        toast.success("File uploaded.");
+        toast.success(tToast('fileUploaded'));
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Upload failed.";
         toast.error(msg);
@@ -936,7 +937,7 @@ function SendMediaForm({
         setUploading(false);
       }
     },
-    [onUpdateConfig],
+    [tToast, onUpdateConfig],
   );
 
   const handleClear = () => {

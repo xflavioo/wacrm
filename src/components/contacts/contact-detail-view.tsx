@@ -1,5 +1,6 @@
 'use client';
 
+import { INTL_LOCALE } from '@/lib/locale'
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
@@ -41,6 +42,7 @@ import {
   LayoutTemplate,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useWhatsAppChannel } from '@/hooks/use-whatsapp-channel';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -56,6 +58,8 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
+
+  const tToast = useTranslations('Toasts')
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
 
@@ -67,6 +71,7 @@ export function ContactDetailView({
   // with this contact by sending an approved template. The send route
   // find-or-creates the conversation, so no inbound message is required.
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const { isQr } = useWhatsAppChannel();
   const [sendingTemplate, setSendingTemplate] = useState(false);
 
   // Details tab
@@ -360,7 +365,7 @@ export function ContactDetailView({
       toast.success(t('toastTemplateSent', { name: template.name }));
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'network error';
-      toast.error(`Failed to send template: ${reason}`);
+      toast.error(tToast('sendTemplateFailed', { reason }));
     } finally {
       setSendingTemplate(false);
     }
@@ -432,6 +437,7 @@ export function ContactDetailView({
                   </div>
                 </div>
               </div>
+              {!isQr && (
               <div className="mt-3">
                 <Button
                   size="sm"
@@ -447,6 +453,7 @@ export function ContactDetailView({
                   {t('sendTemplateBtn')}
                 </Button>
               </div>
+              )}
             </SheetHeader>
 
             {/* Tabs */}
@@ -627,7 +634,7 @@ export function ContactDetailView({
                           </button>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1.5">
-                          {new Date(note.created_at).toLocaleDateString('en-US', {
+                          {new Date(note.created_at).toLocaleDateString(INTL_LOCALE ?? 'en-US', {
                             month: 'short',
                             day: 'numeric',
                             year: 'numeric',

@@ -55,6 +55,7 @@ import {
 import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
+import { useWhatsAppChannel } from "@/hooks/use-whatsapp-channel";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -142,6 +143,10 @@ export function MessageComposer({
   onClearReply,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
+  // Templates only exist on the official (Meta) API.
+  const { isQr } = useWhatsAppChannel();
+
+  const tToast = useTranslations('Toasts')
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -269,7 +274,7 @@ export function MessageComposer({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (data.code === "ai_not_configured") {
-          toast.error("AI isn't set up yet — enable it in Settings → AI Assistant.");
+          toast.error(tToast('aiNotSetUp'));
         } else {
           toast.error(data.error ?? "Couldn't draft a reply.");
         }
@@ -277,7 +282,7 @@ export function MessageComposer({
       }
       const draftText = typeof data.draft === "string" ? data.draft.trim() : "";
       if (!draftText) {
-        toast.error("The assistant didn't return a reply.");
+        toast.error(tToast('assistantNoReply'));
         return;
       }
       setText(draftText);
@@ -292,11 +297,11 @@ export function MessageComposer({
         }
       });
     } catch {
-      toast.error("Couldn't reach the AI assistant.");
+      toast.error(tToast('aiUnreachable'));
     } finally {
       setDrafting(false);
     }
-  }, [drafting, conversationId, adjustHeight]);
+  }, [tToast, drafting, conversationId, adjustHeight]);
 
   // ---- Interactive message + quick replies --------------------------
 
@@ -431,7 +436,7 @@ export function MessageComposer({
       });
       if (file.size === 0) return; // cancelled / empty take
       if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
-        toast.error("Recording is too long (over 16 MB).");
+        toast.error(tToast('recordingTooLong'));
         return;
       }
       setBusy(true);
@@ -445,13 +450,13 @@ export function MessageComposer({
         setBusy(false);
       }
     },
-    [removeStaged],
+    [tToast, removeStaged],
   );
 
   const startRecording = useCallback(async () => {
     if (inputsDisabled || busy || recording) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
-      toast.error("Voice recording isn't supported in this browser.");
+      toast.error(tToast('voiceUnsupported'));
       return;
     }
     try {
@@ -478,9 +483,9 @@ export function MessageComposer({
     } catch {
       void recorderRef.current?.stop().catch(() => {});
       recorderRef.current = null;
-      toast.error("Microphone access denied or unavailable.");
+      toast.error(tToast('micDenied'));
     }
-  }, [inputsDisabled, busy, recording, finalizeRecording]);
+  }, [tToast, inputsDisabled, busy, recording, finalizeRecording]);
 
   const stopRecording = useCallback(() => {
     clearTimer();
@@ -697,6 +702,7 @@ export function MessageComposer({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {!isQr && (
           <GatedButton
             variant="ghost"
             size="sm"
@@ -708,6 +714,7 @@ export function MessageComposer({
           >
             <LayoutTemplate className="h-4 w-4" />
           </GatedButton>
+          )}
 
           <GatedButton
             variant="ghost"

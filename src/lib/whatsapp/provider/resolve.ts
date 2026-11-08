@@ -16,6 +16,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { decrypt } from '@/lib/whatsapp/encryption';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
+import {
+  EvolutionConfigError,
+  evolutionCredsFromRow,
+  type EvolutionConfigRow,
+} from '@/lib/whatsapp/evolution/config';
+import { evolutionProvider } from '@/lib/whatsapp/evolution/provider';
+import { dbThrottle } from '@/lib/whatsapp/evolution/throttle';
 import { metaProvider, type MetaCredentials } from './meta';
 import type { WhatsAppProvider } from './types';
 
@@ -87,11 +95,38 @@ export async function resolveProvider(
   // coluna quando já se sabe para quem ele é. Mesma disciplina do
   // `assertMetaConfig` (Task 13).
   //
-  // Fail-closed: `!== 'meta'`, não `=== 'evolution'`. Só Meta tem
-  // transporte hoje; qualquer outro valor — 'evolution', um terceiro
-  // provedor futuro, ou lixo numa base sem o CHECK da 040 — tem que
-  // parar AQUI, e não cair no ramo Meta e mandar a credencial errada
-  // para graph.facebook.com.
+  // Canal QR code: a credencial em `access_token` é a API key da
+  // Evolution e só é descriptografada aqui, para o servidor Evolution.
+  if (kind === 'evolution') {
+    let creds;
+    try {
+      creds = evolutionCredsFromRow(row as unknown as EvolutionConfigRow);
+    } catch (err) {
+      if (err instanceof EvolutionConfigError) {
+        throw new ProviderResolutionError(
+          'whatsapp_not_configured',
+          err.message,
+          400
+        );
+      }
+      throw err;
+    }
+    return {
+      // A fila antibanimento usa o service role mesmo quando `db` é o
+      // cliente do usuário (RLS): `claim_evolution_send_slot` só é
+      // executável pelo service role, e o `account_id` é explícito.
+      provider: evolutionProvider(creds, {
+        throttle: dbThrottle(supabaseAdmin(), accountId),
+      }),
+      config: row,
+      decryptedToken: creds.apiKey,
+    };
+  }
+
+  // Fail-closed: `!== 'meta'`, não `=== 'evolution'`. Qualquer outro
+  // valor — um terceiro provedor futuro, ou lixo numa base sem o CHECK
+  // da 040 — tem que parar AQUI, e não cair no ramo Meta e mandar a
+  // credencial errada para graph.facebook.com.
   if (kind !== 'meta') {
     throw new ProviderResolutionError(
       'provider_not_implemented',

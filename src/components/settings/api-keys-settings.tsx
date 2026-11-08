@@ -15,6 +15,7 @@
 // bug (same lesson as the invite-link flow).
 // ============================================================
 
+import { INTL_LOCALE } from '@/lib/locale'
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Copy, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react';
@@ -55,7 +56,7 @@ interface ApiKey {
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString(INTL_LOCALE, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
