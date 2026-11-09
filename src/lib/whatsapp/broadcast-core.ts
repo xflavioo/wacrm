@@ -18,7 +18,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
+import { parseInternationalPhone } from '@/lib/whatsapp/phone-utils';
 import {
   resolveProvider,
   ProviderResolutionError,
@@ -75,6 +75,10 @@ export interface BroadcastPlan {
   rejected: number;
 }
 
+export interface CreatedBroadcastPlan extends BroadcastPlan {
+  duplicates: number;
+}
+
 const MAX_RECIPIENTS = 1000;
 
 /**
@@ -89,7 +93,7 @@ export async function createBroadcast(
   accountId: string,
   auditUserId: string,
   params: CreateBroadcastParams
-): Promise<BroadcastPlan> {
+): Promise<CreatedBroadcastPlan> {
   const { name, templateName, recipients } = params;
 
   if (!templateName) {
@@ -141,16 +145,20 @@ export async function createBroadcast(
 
   // Resolve each recipient to a contact. Invalid phones are dropped
   // (counted as rejected) rather than aborting the whole broadcast.
+  // `to` is raw integrator input, so the leading `+` is required — a
+  // national-format number would otherwise be delivered to whichever
+  // country its leading digits spell (issue #586).
   const resolved: { contactId: string; phone: string; params: string[] }[] = [];
   let rejected = 0;
   for (const r of recipients) {
-    const sanitized = sanitizePhoneForMeta(typeof r.to === 'string' ? r.to : '');
-    if (!isValidE164(sanitized)) {
+    const to = typeof r.to === 'string' ? r.to : '';
+    const sanitized = parseInternationalPhone(to);
+    if (!sanitized) {
       rejected++;
       continue;
     }
     const { id } = await findOrCreateContact(db, accountId, auditUserId, {
-      phone: sanitized,
+      phone: to,
     });
     resolved.push({
       contactId: id,
@@ -176,7 +184,7 @@ export async function createBroadcast(
   if (deduped.length === 0) {
     throw new BroadcastError(
       'bad_request',
-      'No recipients had a valid E.164 phone number',
+      'No recipients had a valid international phone number (leading + and country code, e.g. +14155550123)',
       400
     );
   }
@@ -236,6 +244,7 @@ export async function createBroadcast(
     templateRow,
     planned,
     rejected,
+    duplicates: resolved.length - deduped.length,
   };
 }
 

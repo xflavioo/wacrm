@@ -1,9 +1,9 @@
 "use client";
 
-import { useTranslations } from 'next-intl'
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, MessageSquare, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,8 +44,7 @@ function emptyDraft(): DraftState {
 }
 
 export function QuickRepliesManager() {
-  const tToast = useTranslations('Toasts')
-  const t = useTranslations('Settings.quickReplies')
+  const t = useTranslations("Settings.quickReplies");
   const [items, setItems] = useState<QuickReply[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<DraftState | null>(null);
@@ -80,7 +79,7 @@ export function QuickRepliesManager() {
   const save = useCallback(async () => {
     if (!draft) return;
     if (!draft.title.trim()) {
-      toast.error(tToast('quickReplyNeedsName'));
+      toast.error(t("nameRequired"));
       return;
     }
     const payload =
@@ -100,30 +99,30 @@ export function QuickRepliesManager() {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error ?? tToast('quickReplySaveFailed'));
+        toast.error(data.error ?? t("saveError"));
         return;
       }
-      toast.success(draft.id ? "Quick reply updated." : "Quick reply created.");
+      toast.success(draft.id ? t("updated") : t("created"));
       setDraft(null);
       await load();
     } catch {
-      toast.error(tToast('quickReplySaveFailed'));
+      toast.error(t("saveError"));
     } finally {
       setSaving(false);
     }
-  }, [tToast, draft, load]);
+  }, [draft, load, t]);
 
   const remove = useCallback(
     async (id: string) => {
-      if (!window.confirm(t("confirmDelete"))) return;
+      if (!window.confirm(t("deleteConfirm"))) return;
       const res = await fetch(`/api/quick-replies/${id}`, { method: "DELETE" });
       if (!res.ok) {
-        toast.error(tToast('quickReplyDeleteFailed'));
+        toast.error(t("deleteError"));
         return;
       }
       await load();
     },
-    [tToast, t, load],
+    [load, t],
   );
 
   return (

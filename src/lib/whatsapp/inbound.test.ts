@@ -3,12 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   dispatchInboundToAiReply: vi.fn(),
   runAutomationsForTrigger: vi.fn(),
+  resumeAwaitingReply: vi.fn(),
   dispatchInboundToFlows: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
 }));
 
 vi.mock('@/lib/ai/auto-reply', () => ({ dispatchInboundToAiReply: h.dispatchInboundToAiReply }));
-vi.mock('@/lib/automations/engine', () => ({ runAutomationsForTrigger: h.runAutomationsForTrigger }));
+vi.mock('@/lib/automations/engine', () => ({
+  runAutomationsForTrigger: h.runAutomationsForTrigger,
+  resumeAwaitingReply: h.resumeAwaitingReply,
+}));
 vi.mock('@/lib/flows/engine', () => ({ dispatchInboundToFlows: h.dispatchInboundToFlows }));
 vi.mock('@/lib/webhooks/deliver', () => ({ dispatchWebhookEvent: h.dispatchWebhookEvent }));
 
@@ -40,7 +44,7 @@ function fakeDb(upsertRows: unknown[]) {
           count: 0,
           error: null,
         });
-      for (const op of ['select', 'eq', 'in', 'order', 'limit', 'update', 'insert', 'upsert']) {
+      for (const op of ['select', 'eq', 'in', 'is', 'order', 'limit', 'update', 'insert', 'upsert']) {
         chain[op] = (...args: unknown[]) => {
           calls.push({ table, op, args });
           return chain;
@@ -138,6 +142,18 @@ describe('persistAndDispatchInbound (shared with the Meta webhook)', () => {
     expect(h.runAutomationsForTrigger).not.toHaveBeenCalled();
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled();
     expect(h.dispatchWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('an automation waiting for a reply consumes the message: no content triggers, no AI', async () => {
+    h.dispatchInboundToFlows.mockResolvedValue({ consumed: false });
+    h.resumeAwaitingReply.mockResolvedValue(true);
+    const { db } = fakeDb([{ id: 'new-row' }]);
+    await persistAndDispatchInbound({ db, accountId: 'acc-1', configOwnerUserId: 'u-1' }, thread, msg);
+    expect(h.resumeAwaitingReply).toHaveBeenCalledTimes(1);
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled();
+    const triggers = h.runAutomationsForTrigger.mock.calls.map((c) => c[0].triggerType);
+    expect(triggers).not.toContain('new_message_received');
+    expect(triggers).not.toContain('keyword_match');
   });
 
   it('a flow that consumed the message suppresses the AI reply', async () => {

@@ -11,7 +11,7 @@
 
 | Prompt pedia | O que o repositório já decidiu | Plano |
 |---|---|---|
-| Tabela própria `evolution_config` | D2 da fundação: reusar `whatsapp_config`, coluna `provider`, `phone_number_id` já é nullable, CHECK `whatsapp_config_provider_fields_check` já existe (migration 040, mergeada) | Mantido. A migration 041 só **acrescenta colunas** à mesma linha e amplia o CHECK. Uma tabela paralela duplicaria RLS/escopo e contradiria uma decisão mergeada. |
+| Tabela própria `evolution_config` | D2 da fundação: reusar `whatsapp_config`, coluna `provider`, `phone_number_id` já é nullable, CHECK `whatsapp_config_provider_fields_check` já existe (migration 060, mergeada) | Mantido. A migration 061 só **acrescenta colunas** à mesma linha e amplia o CHECK. Uma tabela paralela duplicaria RLS/escopo e contradiria uma decisão mergeada. |
 | API key cifrada em coluna própria | D3: a credencial vai em `access_token` (AES-256-GCM, `encryption.ts`); `provider` desambigua | Mantido. |
 | Rota `/api/evolution/*` para tudo | Layout herdado: gerenciamento em `/api/whatsapp/evolution/*` (o middleware já exige sessão em `/api/whatsapp/*`), webhook em `/api/evolution/webhook/[secret]` (fora do gate, com segredo próprio) | Seguido. |
 | `QRCODE_UPDATED` atualiza o QR da tela | D9: o QR **nunca é persistido** (credencial de pareamento, expira em ~20 s) | O webhook só marca `connecting`. A tela faz polling em `GET /api/whatsapp/evolution/connect`, que pede um QR novo ao Evolution a cada chamada. Diferença registrada. |
@@ -25,7 +25,7 @@
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `supabase/migrations/041_evolution_channel.sql` | Colunas novas em `whatsapp_config` (segredo do webhook como hash, número conectado, limites de ritmo/broadcast, fila de envio), CHECK ampliado, função `claim_evolution_send_slot`, tipo de notificação `whatsapp_disconnected` |
+| `supabase/migrations/061_evolution_channel.sql` | Colunas novas em `whatsapp_config` (segredo do webhook como hash, número conectado, limites de ritmo/broadcast, fila de envio), CHECK ampliado, função `claim_evolution_send_slot`, tipo de notificação `whatsapp_disconnected` |
 | `src/lib/whatsapp/evolution/client.ts` | Cliente HTTP (`fetch`, timeout, erros pt-BR): conectar/QR, estado, logout, webhook set, sendText, sendMedia, sendAudio (PTT), presença, marcar lido, baixar mídia base64 |
 | `src/lib/whatsapp/evolution/provider.ts` | `WhatsAppProvider` Evolution: usa o cliente, texto numerado p/ interativo, `sendTemplate` recusa, throttle antiban |
 | `src/lib/whatsapp/evolution/jid.ts` | Telefone ↔ JID, resolução de LID, nono dígito BR |
@@ -59,7 +59,7 @@
 | `.env.local.example`, `README.md` | `NEXT_PUBLIC_APP_LOCALE=pt` e seção "Canal Evolution (QR code)" |
 | `package.json`, `package-lock.json` | `zod` declarado |
 
-## 3. Migration `041_evolution_channel.sql`
+## 3. Migration `061_evolution_channel.sql`
 
 Colunas em `whatsapp_config` (todas `NULL`/default; **só** linhas Evolution as usam — o CHECK força `NULL` nas linhas Meta):
 
@@ -89,7 +89,7 @@ Mídia: `chat/getBase64FromMediaMessage` → bytes → upload no bucket `chat-me
 ## 5. Ordem de execução (um commit por fase)
 
 1. **Fase 1** — pt-BR: `.env.local.example`, revisão `pt.json`/`pt-BR.json`, textos fixos, datas/moeda.
-2. **Fase 2** — migration 041, cliente, config/connect/disconnect, tela.
+2. **Fase 2** — migration 061, cliente, config/connect/disconnect, tela.
 3. **Fase 3** — extração `inbound.ts`/`status-update.ts`, webhook Evolution.
 4. **Fase 4** — provedor Evolution, throttle, interativo numerado.
 5. **Fase 5** — gating Meta-only, janela 24 h, broadcast Evolution.
@@ -113,3 +113,27 @@ Registrada antes da primeira mudança (ver commit da Fase 1). A fundação docum
   '__free_text__'` (a coluna é NOT NULL) e a mensagem em `template_variables.free_message` — sem
   migration extra.
 - Listas de "fica de fora" e riscos: ver o resumo final entregue junto com este plano.
+
+## 8. Sincronização com o repositório oficial (out/2026)
+
+O fork foi atualizado com `ArnasDon/wacrm` (205 commits desde 12/08/2026) numa branch própria.
+
+- **Numeração de migrations:** o oficial já usa `040`–`059`. As migrations do canal foram
+  renumeradas para `060_evolution_provider.sql` e `061_evolution_channel.sql`. O conteúdo não
+  mudou; só o número (e as referências em comentários, no `verify-schema.sql` e nos docs).
+- **Pipeline de entrada compartilhado (`inbound.ts`):** passou a acompanhar o oficial —
+  identidade por telefone **ou** BSUID (`WaIdentity`), `claimFirstInboundMessage` (atômico, só
+  depois do INSERT idempotente), automações "esperar resposta" (`resumeAwaitingReply`) e
+  `inboundMessageId` para a IA. O Evolution entra com `phoneIdentity(telefone, nome)`.
+- **Status de entrega:** o webhook da Meta usa `applyMessageStatus` +
+  `applyBroadcastRecipientStatus` (oficial). `status-update.ts` ficou só com o canal QR e
+  restringe tudo à conta dona (o `key.id` do Evolution não é globalmente único).
+- **Envio:** `sendToTarget` (`provider/retry.ts`) trata contato sem telefone (só BSUID) com uma
+  tentativa; com telefone segue a política de variantes do provedor.
+- **Segurança:** `loadAccountMetaCredentials` (usado pelo "digitando…" da IA) agora passa por
+  `assertMetaConfig`, para a chave do Evolution nunca ir para a Graph API. A rota de saúde do
+  número reconhece o canal QR. Retomar um disparo de texto livre (QR) é recusado com erro claro.
+- **Textos:** o oficial passou a traduzir a interface e os erros de API pelo next-intl (`Api`,
+  `LibErrors`, `Notifications`…). Onde os dois lados traduziram a mesma tela, ficou a versão do
+  oficial; o vocabulário pt-BR do fork foi mantido nas chaves em que só ele escreveu ou em que
+  o texto do oficial não mudou. `es.json` (novo) recebeu as chaves do canal QR em **inglês**.

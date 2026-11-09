@@ -58,6 +58,11 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import {
+  contactSearchFilter,
+  contactSearchPattern,
+} from '@/lib/contacts/search-filter';
+import { pageAfterRangeError, pageAfterShrink } from '@/lib/contacts/page-bounds';
 
 const PAGE_SIZE = 25;
 
@@ -67,6 +72,7 @@ interface ContactWithTags extends Contact {
 
 export default function ContactsPage() {
   const t = useTranslations('Contacts.page');
+  const tGate = useTranslations('GatedButton');
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
@@ -133,6 +139,7 @@ export default function ContactsPage() {
 
     let contactRows: Contact[];
     let count: number;
+    let countIsExact = true;
 
     if (selectedTagIds.length > 0) {
       // Tag filter active — resolve it server-side (join + distinct +
@@ -141,7 +148,7 @@ export default function ContactsPage() {
       // clause. See migration 025_filter_contacts_by_tags.
       const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
         p_tag_ids: selectedTagIds,
-        p_search: term || null,
+        p_search: contactSearchPattern(term),
         p_limit: PAGE_SIZE,
         p_offset: from,
       });
@@ -154,6 +161,7 @@ export default function ContactsPage() {
       const rows = (data ?? []) as { contact: Contact; total_count: number }[];
       contactRows = rows.map((r) => r.contact);
       count = rows.length > 0 ? Number(rows[0].total_count) : 0;
+      countIsExact = rows.length > 0;
     } else {
       let query = supabase
         .from('contacts')
@@ -161,13 +169,18 @@ export default function ContactsPage() {
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      if (term) {
-        const like = `%${term}%`;
-        query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
-      }
+      const searchFilter = contactSearchFilter(term, { includeEmail: true });
+      if (searchFilter) query = query.or(searchFilter);
 
       const { data, count: exactCount, error } = await query;
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+      const pageInRange = error
+        ? pageAfterRangeError(page, PAGE_SIZE, error)
+        : null;
+      if (pageInRange !== null && pageInRange !== page) {
+        setPage(pageInRange);
+        return;
+      }
       if (error) {
         toast.error(t('toastFailedLoad'));
         setLoading(false);
@@ -178,6 +191,12 @@ export default function ContactsPage() {
     }
 
     setTotalCount(count);
+
+    const boundedPage = pageAfterShrink(page, count, PAGE_SIZE, countIsExact);
+    if (contactRows.length === 0 && boundedPage !== page) {
+      setPage(boundedPage);
+      return;
+    }
 
     if (contactRows.length === 0) {
       setContacts([]);
@@ -364,7 +383,7 @@ export default function ContactsPage() {
           <GatedButton
             variant="outline"
             canAct={canEdit}
-            gateReason="add or import contacts"
+            gateReason={tGate('reasons.addOrImportContacts')}
             onClick={() => setImportOpen(true)}
             className="border-border text-muted-foreground hover:bg-muted"
           >
@@ -373,7 +392,7 @@ export default function ContactsPage() {
           </GatedButton>
           <GatedButton
             canAct={canEdit}
-            gateReason="add or import contacts"
+            gateReason={tGate('reasons.addOrImportContacts')}
             onClick={openAddForm}
             className="bg-primary hover:bg-primary/90 text-primary-foreground"
           >
@@ -446,7 +465,7 @@ export default function ContactsPage() {
                       <Checkbox
                         checked={selectedTagIds.includes(tag.id)}
                         onCheckedChange={() => toggleTagFilter(tag.id)}
-                        aria-label={`Filter by ${tag.name}`}
+                        aria-label={t('filterByTag', { name: tag.name })}
                       />
                       <span
                         className="size-2.5 shrink-0 rounded-full"
@@ -481,7 +500,7 @@ export default function ContactsPage() {
                   {tag.name}
                   <button
                     onClick={() => toggleTagFilter(id)}
-                    aria-label={`Remove ${tag.name} filter`}
+                    aria-label={t('removeTagFilter', { name: tag.name })}
                     className="hover:opacity-70"
                   >
                     <X className="size-3" />
@@ -518,7 +537,7 @@ export default function ContactsPage() {
               variant="destructive"
               size="sm"
               canAct={canEdit}
-              gateReason="delete contacts"
+              gateReason={tGate('reasons.deleteContacts')}
               onClick={() => setBulkDeleteOpen(true)}
             >
               <Trash2 className="size-4" />
@@ -539,7 +558,7 @@ export default function ContactsPage() {
                   indeterminate={!allOnPageSelected && someOnPageSelected}
                   onCheckedChange={toggleSelectAll}
                   disabled={contacts.length === 0}
-                  aria-label="Select all contacts on this page"
+                  aria-label={t('selectAllOnPage')}
                 />
               </TableHead>
               <TableHead className="text-muted-foreground">{t('tableColumns.name')}</TableHead>
@@ -574,7 +593,7 @@ export default function ContactsPage() {
                     {!hasActiveFilters && (
                       <GatedButton
                         canAct={canEdit}
-                        gateReason="add or import contacts"
+                        gateReason={tGate('reasons.addOrImportContacts')}
                         variant="outline"
                         size="sm"
                         onClick={openAddForm}
@@ -598,7 +617,7 @@ export default function ContactsPage() {
                     <Checkbox
                       checked={selected.has(contact.id)}
                       onCheckedChange={() => toggleSelect(contact.id)}
-                      aria-label={`Select ${contact.name || contact.phone}`}
+                      aria-label={t('selectContact', { name: contact.name || contact.phone })}
                     />
                   </TableCell>
                   <TableCell className="text-foreground font-medium">

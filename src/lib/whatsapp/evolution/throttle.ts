@@ -2,7 +2,7 @@
 // Ritmo de envio antibanimento.
 //
 // O WhatsApp não oficial pune quem manda mais rápido do que um humano.
-// A regra (configurável por conta, migração 041):
+// A regra (configurável por conta, migração 061):
 //   * enviar para o MESMO número da última mensagem não espera — é uma
 //     conversa, o humano está respondendo em sequência;
 //   * enviar para um número DIFERENTE só depois de
@@ -54,7 +54,7 @@ export function dbThrottle(
       p_to: to,
     });
     if (error) {
-      // Sem a função (migração 041 não aplicada) ou banco fora: não trava
+      // Sem a função (migração 061 não aplicada) ou banco fora: não trava
       // o envio de um humano por causa da proteção — registra e segue.
       console.warn('[evolution] send throttle unavailable:', error.message);
       return;

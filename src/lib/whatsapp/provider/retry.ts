@@ -52,3 +52,21 @@ export async function sendWithAddressRetry(
 
   throw lastError;
 }
+
+/**
+ * Like `sendWithAddressRetry`, but for a contact that may have no phone
+ * number at all: Meta withholds it for customers who adopted a WhatsApp
+ * username, so the contact carries only a business-scoped user ID. That
+ * ID is opaque and has exactly one correct form — it gets a single
+ * attempt, never the phone-variant retry.
+ */
+export async function sendToTarget(
+  provider: WhatsAppProvider,
+  target: { target: string; isPhone: boolean },
+  attempt: (address: string) => Promise<string>
+): Promise<AddressRetryResult> {
+  if (target.isPhone) {
+    return sendWithAddressRetry(provider, target.target, attempt);
+  }
+  return { messageId: await attempt(target.target), workingAddress: target.target };
+}

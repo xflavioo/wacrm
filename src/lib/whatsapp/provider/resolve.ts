@@ -86,7 +86,7 @@ export async function resolveProvider(
 
   const row = config as RawConfigRow;
 
-  // Linhas gravadas antes da migração 040 não têm `provider`. Toda
+  // Linhas gravadas antes da migração 060 não têm `provider`. Toda
   // linha pré-040 é Meta por construção, então o default preserva o
   // comportamento numa base ainda não migrada.
   const kind = row.provider ?? 'meta';
@@ -161,7 +161,7 @@ export async function resolveProvider(
  *
  * Elas não têm equivalente na Evolution e não vão para trás da
  * interface de provedor — mas TODAS descriptografam `access_token`,
- * que desde a migração 040 pode conter a chave da Evolution. Sem este
+ * que desde a migração 060 pode conter a chave da Evolution. Sem este
  * portão, uma conta em modo Evolution manda a própria chave para
  * graph.facebook.com no primeiro clique em "Sync from Meta".
  *

@@ -27,7 +27,7 @@ import { evolutionErrorResponse } from '@/lib/whatsapp/evolution/http';
 //     usado entre uma renovação e outra só para acompanhar o estado).
 //
 // O QR é credencial de pareamento e expira em ~20 s: é repassado ao
-// navegador e NUNCA gravado (decisão D9 da migração 040).
+// navegador e NUNCA gravado (decisão D9 da migração 060).
 export async function GET(request: Request) {
   try {
     const { supabase, accountId } = await requireRole('admin');

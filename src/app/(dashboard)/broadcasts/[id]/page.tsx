@@ -4,6 +4,7 @@ import { INTL_LOCALE } from '@/lib/locale'
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAllPages } from '@/lib/supabase/paged-query';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +42,7 @@ import {
   getBroadcastStatus,
   getRecipientStatus,
 } from '@/lib/broadcast-status';
+import { isBroadcastDeliveryInFlight } from '@/lib/whatsapp/broadcast-delivery-lease';
 import { useTranslations } from 'next-intl';
 
 interface StatCardProps {
@@ -79,10 +81,11 @@ interface FunnelStep {
  * always render a full bar at the top and proportional tails.
  */
 function FunnelChart({ steps }: { steps: FunnelStep[] }) {
+  const t = useTranslations('Broadcasts.detail');
   const max = Math.max(...steps.map((s) => s.value), 1);
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <h3 className="mb-4 text-sm font-medium text-foreground">Funnel</h3>
+      <h3 className="mb-4 text-sm font-medium text-foreground">{t('funnel')}</h3>
       <div className="space-y-2">
         {steps.map((step) => {
           const pctOfMax = Math.max(5, Math.round((step.value / max) * 100));
@@ -162,6 +165,7 @@ export default function BroadcastDetailPage() {
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deliveryInFlight, setDeliveryInFlight] = useState(false);
   const [resumingScope, setResumingScope] = useState<
     'pending' | 'failed' | null
   >(null);
@@ -178,15 +182,18 @@ export default function BroadcastDetailPage() {
 
       if (bcError) throw bcError;
       setBroadcast(bc);
+      setDeliveryInFlight(await isBroadcastDeliveryInFlight(supabase, broadcastId));
 
-      const { data: recs, error: recsError } = await supabase
-        .from('broadcast_recipients')
-        .select('*, contact:contacts(*)')
-        .eq('broadcast_id', broadcastId)
-        .order('created_at', { ascending: false });
-
-      if (recsError) throw recsError;
-      setRecipients(recs ?? []);
+      const recs = await fetchAllPages<BroadcastRecipient>((from, to) =>
+        supabase
+          .from('broadcast_recipients')
+          .select('*, contact:contacts(*)')
+          .eq('broadcast_id', broadcastId)
+          .order('created_at', { ascending: false })
+          .order('id')
+          .range(from, to),
+      );
+      setRecipients(recs);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('notFound'));
     } finally {
@@ -272,7 +279,7 @@ export default function BroadcastDetailPage() {
     } catch (err) {
       toast.error(
         t('toastResumeFailed', {
-          error: err instanceof Error ? err.message : 'Unknown error',
+          error: err instanceof Error ? err.message : t('unknownError'),
         }),
       );
     } finally {
@@ -420,7 +427,7 @@ export default function BroadcastDetailPage() {
 
       {/* Resume / retry (issue #472). Only rendered when there is
           actually something outstanding. */}
-      {(pendingCount > 0 || retryableCount > 0) && (
+      {!deliveryInFlight && (pendingCount > 0 || retryableCount > 0) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
           <div className="text-sm">
             <p className="font-medium text-foreground">
@@ -606,7 +613,7 @@ export default function BroadcastDetailPage() {
                   return (
                     <TableRow key={recipient.id} className="border-border">
                       <TableCell className="font-medium text-foreground">
-                        {recipient.contact?.name ?? 'Unknown'}
+                        {recipient.contact?.name ?? t('unknownContact')}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {recipient.contact?.phone ?? '-'}

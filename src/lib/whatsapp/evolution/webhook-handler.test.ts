@@ -16,6 +16,14 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/whatsapp/inbound', () => ({
+  // Identidade só com telefone — a mesma forma que o código real monta.
+  phoneIdentity: (phone: string, name: string) => ({
+    phone,
+    waUserId: null,
+    waParentUserId: null,
+    waUsername: null,
+    name,
+  }),
   resolveInboundThread: h.resolveInboundThread,
   persistAndDispatchInbound: h.persistAndDispatchInbound,
   persistOutboundFromPhone: h.persistOutboundFromPhone,
@@ -122,8 +130,7 @@ describe('MESSAGES_UPSERT — received (fromMe=false)', () => {
 
     expect(h.resolveInboundThread).toHaveBeenCalledWith(
       { db, accountId: 'acc-1', configOwnerUserId: 'user-1' },
-      '5591988887777',
-      'Maria'
+      expect.objectContaining({ phone: '5591988887777', name: 'Maria' })
     );
     expect(h.persistAndDispatchInbound).toHaveBeenCalledTimes(1);
     const [, , msg] = h.persistAndDispatchInbound.mock.calls[0];
@@ -267,8 +274,8 @@ describe('MESSAGES_UPSERT — sent from the phone (fromMe=true)', () => {
 
     expect(h.resolveInboundThread).toHaveBeenCalledWith(
       expect.objectContaining({ accountId: 'acc-1' }),
-      '5591988887777',
-      '' // pushName de fromMe é o NOSSO nome: nunca renomeia o contato
+      // pushName de fromMe é o NOSSO nome: nunca renomeia o contato
+      expect.objectContaining({ phone: '5591988887777', name: '' })
     );
     expect(h.persistOutboundFromPhone).toHaveBeenCalledTimes(1);
     expect(h.persistOutboundFromPhone.mock.calls[0][2]).toMatchObject({

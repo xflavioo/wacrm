@@ -74,7 +74,7 @@ describe('resolveProvider', () => {
     expect(seen.filters).toContainEqual(['account_id', 'acct-1']);
   });
 
-  // Linhas anteriores à migração 040 não têm `provider`. Tratar
+  // Linhas anteriores à migração 060 não têm `provider`. Tratar
   // undefined como 'meta' é o que mantém o comportamento idêntico numa
   // base que ainda não rodou a migração.
   it('treats a row with no provider column as meta', async () => {
